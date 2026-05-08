@@ -1,0 +1,1052 @@
+"""
+Webtoon Translation Engine (Chrome + Gemini Web UI)
+─────────────────────────────────────────
+- Smart-slices tall webtoon images
+- Uses Playwright to drive Google Chrome to gemini.google.com
+- Uploads images and asks for translation
+- Outputs a single clean TXT file
+"""
+
+import os
+import time
+import re
+import tempfile
+import random
+from pathlib import Path
+from PIL import Image
+from playwright.sync_api import sync_playwright
+from pathlib import Path
+from PIL import Image
+import win32clipboard
+import io
+import numpy as np
+import cv2
+from arabic_reshaper import ArabicReshaper, reshape
+from bidi.algorithm import get_display
+from PIL import ImageFont, ImageDraw
+
+def load_image_rgb(path_or_img):
+    if isinstance(path_or_img, (str, Path)):
+        img = Image.open(path_or_img)
+    else:
+        img = path_or_img
+        
+    if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info):
+        alpha = img.convert('RGBA').split()[-1]
+        bg = Image.new("RGB", img.size, (255, 255, 255))
+        bg.paste(img, mask=alpha)
+        return bg
+    return img.convert('RGB')
+
+def get_arabic_text(text):
+    from arabic_reshaper import ArabicReshaper
+    reshaper = ArabicReshaper(configuration={'use_unshaped_instead_of_isolated': True})
+    reshaped_text = reshaper.reshape(text)
+    bidi_text = get_display(reshaped_text)
+    return bidi_text
+
+def refine_bubble_center(clean_img_pil, cx_global, cy_global, gemini_box=None):
+    """
+    Uses Flood Fill on a LOCAL CROP around Gemini's predicted center to find the 
+    exact bubble boundaries. Returns global coordinates.
+    
+    Args:
+        clean_img_pil: The full clean PIL image.
+        cx_global, cy_global: Center of Gemini's predicted text box (global coords).
+        gemini_box: Optional (x1, y1, x2, y2) of Gemini's raw prediction for sanity checking.
+    """
+    import cv2
+    import numpy as np
+    
+    img = np.array(clean_img_pil)
+    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    full_h, full_w = gray.shape
+    cx, cy = int(cx_global), int(cy_global)
+    
+    if cx < 0 or cy < 0 or cx >= full_w or cy >= full_h:
+        return None
+    
+    # --- STEP 1: Crop a local search region around Gemini's center ---
+    # This prevents the flood fill from leaking across the entire image.
+    # Use Gemini's box to determine the search radius, or default to a reasonable area.
+    if gemini_box:
+        gx1, gy1, gx2, gy2 = gemini_box
+        g_w, g_h = gx2 - gx1, gy2 - gy1
+        # Search area = 3x Gemini's box, clamped to image bounds
+        margin_w = max(g_w * 1.5, 150)
+        margin_h = max(g_h * 1.5, 150)
+    else:
+        margin_w, margin_h = 250, 250
+    
+    crop_x1 = max(0, int(cx - margin_w))
+    crop_y1 = max(0, int(cy - margin_h))
+    crop_x2 = min(full_w, int(cx + margin_w))
+    crop_y2 = min(full_h, int(cy + margin_h))
+    
+    local_gray = gray[crop_y1:crop_y2, crop_x1:crop_x2].copy()
+    local_h, local_w = local_gray.shape
+    
+    # Local coordinates for the seed point
+    local_cx = cx - crop_x1
+    local_cy = cy - crop_y1
+    
+    if local_cx < 0 or local_cy < 0 or local_cx >= local_w or local_cy >= local_h:
+        return None
+    
+    # --- STEP 2: Adaptive flood fill tolerance ---
+    # Use the actual pixel value at the seed to pick a good tolerance.
+    # Bright bubbles (white) need tight tolerance; dark bubbles need tight too.
+    seed_val = int(local_gray[local_cy, local_cx])
+    if seed_val > 200:  # White/near-white bubble
+        lo_diff, up_diff = 12, 12
+    elif seed_val < 80:  # Dark bubble
+        lo_diff, up_diff = 15, 15
+    else:  # Colored/gray bubble
+        lo_diff, up_diff = 20, 20
+    
+    mask = np.zeros((local_h + 2, local_w + 2), np.uint8)
+    cv2.floodFill(local_gray, mask, (local_cx, local_cy), 255, 
+                  loDiff=lo_diff, upDiff=up_diff, flags=cv2.FLOODFILL_MASK_ONLY)
+    mask = mask[1:-1, 1:-1]
+    
+    # Find bounding box of the flooded area
+    x, y, bw, bh = cv2.boundingRect(mask)
+    
+    # --- STEP 3: Sanity checks ---
+    # If flood fill filled most of the LOCAL crop, it escaped
+    if bw > local_w * 0.90 or bh > local_h * 0.90:
+        return None
+    
+    # If flood fill area is too small (less than 20x20), it's noise
+    if bw < 20 or bh < 20:
+        return None
+    
+    # If we have Gemini's box, check that the flood-filled area isn't absurdly 
+    # larger than what Gemini predicted (max 4x area = 2x each dimension)
+    if gemini_box:
+        gx1, gy1, gx2, gy2 = gemini_box
+        g_w, g_h = max(20, gx2 - gx1), max(20, gy2 - gy1)
+        if bw > g_w * 3.0 or bh > g_h * 3.0:
+            return None  # Flood fill leaked way beyond the bubble
+    
+    # --- STEP 4: Find visual center using Distance Transform ---
+    dist_map = cv2.distanceTransform(mask, cv2.DIST_L2, 5)
+    _, max_val, _, max_loc = cv2.minMaxLoc(dist_map)
+    v_cx_local, v_cy_local = max_loc
+    
+    # Geometric center
+    geom_cx_local = x + bw / 2.0
+    geom_cy_local = y + bh / 2.0
+    
+    # Blend: 50/50 visual + geometric for best results
+    final_cx_local = (v_cx_local * 0.5) + (geom_cx_local * 0.5)
+    final_cy_local = (v_cy_local * 0.5) + (geom_cy_local * 0.5)
+    
+    # --- STEP 5: Convert back to global coordinates ---
+    global_x1 = crop_x1 + x
+    global_y1 = crop_y1 + y
+    global_x2 = crop_x1 + x + bw
+    global_y2 = crop_y1 + y + bh
+    global_cx = crop_x1 + final_cx_local
+    global_cy = crop_y1 + final_cy_local
+    
+    # Determine if it's a dark bubble
+    roi = local_gray[y:y+bh, x:x+bw]
+    is_dark = np.mean(roi) < 120
+    
+    return global_x1, global_y1, global_x2, global_y2, global_cx, global_cy, is_dark
+
+def _resize_for_gemini(img, max_w=2000, max_h=5000):
+    """Downscale image so Gemini receives it quickly. Caps width at 2000px and height at 5000px."""
+    w, h = img.size
+    ratio = 1.0
+    if w > max_w:
+        ratio = min(ratio, max_w / w)
+    if h > max_h:
+        ratio = min(ratio, max_h / h)
+    if ratio >= 1.0:
+        return img
+    new_w, new_h = int(w * ratio), int(h * ratio)
+    return img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
+def send_image_to_clipboard(image_path):
+    img = load_image_rgb(image_path)
+    img = _resize_for_gemini(img)          # ← downscale before clipboard
+    output = io.BytesIO()
+    img.save(output, 'BMP')
+    data = output.getvalue()[14:]
+    win32clipboard.OpenClipboard()
+    win32clipboard.EmptyClipboard()
+    win32clipboard.SetClipboardData(win32clipboard.CF_DIB, data)
+    win32clipboard.CloseClipboard()
+
+def apply_watermark(base_image, watermark_img, wm_height=40, count=8):
+    """Place up to `count` watermarks (max 8) spread across the image with random jitter."""
+    import math
+    count = min(count, 8)
+    wm_height = max(5, int(wm_height))
+    aspect = watermark_img.width / max(1, watermark_img.height)
+    wm_w = max(1, int(wm_height * aspect))
+    wm_resized = watermark_img.resize((wm_w, wm_height), Image.Resampling.LANCZOS)
+
+    watermarked = base_image.convert("RGBA")
+    overlay = Image.new("RGBA", watermarked.size, (255, 255, 255, 0))
+    img_w, img_h = base_image.width, base_image.height
+
+    # Divide image into a grid and place one watermark per cell with jitter
+    cols = max(1, round(math.sqrt(count * (img_w / max(1, img_h)))))
+    rows = max(1, math.ceil(count / cols))
+    cell_w = img_w / cols
+    cell_h = img_h / rows
+
+    placed = 0
+    for r in range(rows):
+        for c in range(cols):
+            if placed >= count:
+                break
+            cx = int(c * cell_w + cell_w / 2)
+            cy = int(r * cell_h + cell_h / 2)
+            # Random jitter within 40% of cell size
+            jx = random.randint(int(-cell_w * 0.4), int(cell_w * 0.4)) if cell_w > wm_w else 0
+            jy = random.randint(int(-cell_h * 0.4), int(cell_h * 0.4)) if cell_h > wm_height else 0
+            x = max(0, min(cx + jx - wm_w // 2, img_w - wm_w))
+            y = max(0, min(cy + jy - wm_height // 2, img_h - wm_height))
+            overlay.paste(wm_resized, (x, y), mask=wm_resized)
+            placed += 1
+
+    return Image.alpha_composite(watermarked, overlay).convert("RGB")
+
+# detect_text_blocks removed (using Gemini now)
+
+
+
+def wrap_balanced(text, font, max_width):
+    """Professional balanced word wrapping to fit ovals better."""
+    words = text.split()
+    if not words: return []
+    
+    # Simple greedy wrap first to get baseline
+    lines = []
+    curr = ""
+    for w in words:
+        test = (curr + " " + w).strip()
+        tw = font.getbbox(get_display(test))[2]
+        if tw <= max_width or not curr:
+            curr = test
+        else:
+            lines.append(curr)
+            curr = w
+    if curr: lines.append(curr)
+    
+    if len(lines) <= 1: return lines
+    
+    # Try to balance: redistribute words to make line widths more equal
+    total_len = sum(len(w) for w in words)
+    target_len = total_len / len(lines)
+    
+    # This is a simplified balanced wrap
+    balanced_lines = []
+    curr_line = []
+    curr_c = 0
+    for w in words:
+        if curr_c + len(w) > target_len * 1.2 and curr_line:
+            balanced_lines.append(" ".join(curr_line))
+            curr_line = [w]
+            curr_c = len(w)
+        else:
+            curr_line.append(w)
+            curr_c += len(w)
+    if curr_line: balanced_lines.append(" ".join(curr_line))
+    
+    # Final safety check for width
+    final_lines = []
+    for l in balanced_lines:
+        tw = font.getbbox(get_display(l))[2]
+        if tw > max_width: # If balancing failed width, split it
+            sub_curr = ""
+            for w in l.split():
+                if font.getbbox(get_display(sub_curr + " " + w))[2] <= max_width:
+                    sub_curr = (sub_curr + " " + w).strip()
+                else:
+                    final_lines.append(sub_curr)
+                    sub_curr = w
+            if sub_curr: final_lines.append(sub_curr)
+        else:
+            final_lines.append(l)
+            
+    return final_lines
+
+def typeset_arabic(img, text, box_info, font_path, is_dark=False, is_gradient=False, gradient_colors=["#8b5cf6", "#3b82f6"]):
+    """Professional Arabic Typesetting with adaptive colors and optional gradients."""
+    draw = ImageDraw.Draw(img)
+    
+    if len(box_info) == 6:
+        x1, y1, x2, y2, v_cx, v_cy = box_info
+    else:
+        x1, y1, x2, y2 = box_info
+        v_cx, v_cy = (x1 + x2) / 2, (y1 + y2) / 2
+
+    bw, bh = max(5, x2 - x1), max(5, y2 - y1)
+    # ultra-tight padding (4%)
+    pad_frac = 0.04
+    avail_w, avail_h = bw * (1 - 2*pad_frac), bh * (1 - 2*pad_frac)
+    safe_center_x, safe_center_y = (x1 + x2) / 2, (y1 + y2) / 2
+    
+    if avail_w < 10 or avail_h < 10: return img
+
+    reshaper = ArabicReshaper(configuration={'use_unshaped_instead_of_isolated': True})
+    text_color = "white" if is_dark else "black"
+    outline_color = "black" if is_dark else "white"
+    
+    best_size, best_lines = 8, []
+    for size in range(110, 6, -2): # Allow even smaller font if needed
+        try: font = ImageFont.truetype(font_path, size)
+        except: font = ImageFont.load_default()
+        lines = wrap_balanced(text, font, avail_w)
+        if not lines: continue
+        line_h = int(size * 1.2) # Tighten line spacing
+        
+        # Strict fit check: check both total height AND width of every line
+        fits_height = len(lines) * line_h <= avail_h
+        fits_width = all(font.getbbox(get_display(l))[2] <= avail_w for l in lines)
+        
+        if fits_height and fits_width:
+            best_size, best_lines = size, lines
+            break
+        elif size <= 8: # If we are at minimum size, just use it
+            best_size, best_lines = size, lines
+
+    if not best_lines: return img
+    try: font = ImageFont.truetype(font_path, best_size)
+    except: font = ImageFont.load_default()
+    
+    line_h = int(best_size * 1.25)
+    total_text_h = len(best_lines) * line_h
+    # Clamp y_start so text block stays within box boundaries
+    y_start = safe_center_y - (total_text_h / 2)
+    y_start = max(y1 + pad_frac * bh, min(y_start, y2 - pad_frac * bh - total_text_h))
+    
+    for line in best_lines:
+        reshaped = get_display(reshaper.reshape(line))
+        x_draw = safe_center_x
+        y_pos = y_start + (line_h / 2)
+        
+        # Clamp x and y to stay within box
+        x_draw = max(x1 + pad_frac * bw, min(x_draw, x2 - pad_frac * bw))
+        y_pos = max(y1 + pad_frac * bh, min(y_pos, y2 - pad_frac * bh))
+        
+        # Outline
+        for dx, dy in [(-2,0),(2,0),(0,-2),(0,2),(-1,-1),(1,1),(-1,1),(1,-1)]:
+            draw.text((x_draw+dx, y_pos+dy), reshaped, font=font, fill=outline_color, anchor="mm")
+        
+        if is_gradient and len(gradient_colors) == 2:
+            reshaped_line = reshaped
+            left, top, right, bottom = font.getbbox(reshaped_line, anchor="mm")
+            w, h = right - left, bottom - top
+            if w > 0 and h > 0:
+                mask = Image.new('L', (int(w)+10, int(h)+10), 0)
+                mask_draw = ImageDraw.Draw(mask)
+                mask_draw.text((w/2+5, h/2+5), reshaped_line, font=font, fill=255, anchor="mm")
+                
+                grad_roi = Image.new('RGB', (int(w)+10, int(h)+10))
+                c1 = tuple(int(gradient_colors[0].lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
+                c2 = tuple(int(gradient_colors[1].lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
+                
+                for i in range(int(h)+10):
+                    r = int(c1[0] + (c2[0] - c1[0]) * (i / (h+10)))
+                    g = int(c1[1] + (c2[1] - c1[1]) * (i / (h+10)))
+                    b = int(c1[2] + (c2[2] - c1[2]) * (i / (h+10)))
+                    ImageDraw.Draw(grad_roi).line([(0, i), (w+10, i)], fill=(r, g, b))
+                
+                # Clamp gradient paste position within box
+                paste_x = int(x_draw - w/2 - 5)
+                paste_y = int(y_pos - h/2 - 5)
+                paste_x = max(int(x1), min(paste_x, int(x2 - w - 10)))
+                paste_y = max(int(y1), min(paste_y, int(y2 - h - 10)))
+                img.paste(grad_roi, (paste_x, paste_y), mask=mask)
+        else:
+            draw.text((x_draw, y_pos), reshaped, font=font, fill=text_color, anchor="mm")
+        
+        y_start += line_h
+    return img
+
+def render_chapter(project_data, output_dir, target_lang, watermark_path="", watermark_size=40, watermark_count=8, callback=None):
+    folder_name = project_data.get("input_folder_name", "Chapter")
+    final_output_dir = os.path.join(output_dir, folder_name)
+    os.makedirs(final_output_dir, exist_ok=True)
+    
+    font_path = os.path.join(os.path.dirname(__file__), "Zain", "Zain-Bold.ttf")
+    if not os.path.exists(font_path): font_path = "arial.ttf" # Fallback
+
+    wm_img = None
+    if watermark_path and os.path.exists(watermark_path):
+        wm_img = Image.open(watermark_path).convert("RGBA")
+
+    full_text_script = []
+
+    for idx, page in enumerate(project_data["pages"]):
+        if callback: callback(f"🎨 جاري رسم الصفحة {idx + 1}/{len(project_data['pages'])}...")
+        
+        img_path = page["clean_path"] if page.get("clean_path") else page["raw_path"]
+        img = load_image_rgb(img_path)
+        
+        if wm_img:
+            img = apply_watermark(img, wm_img, int(watermark_size), min(int(watermark_count), 8))
+            
+        page_texts = []
+        for block in page["blocks"]:
+            box_info = (block["x"], block["y"], block["x"] + block["w"], block["y"] + block["h"], block["cx"], block["cy"])
+            img = typeset_arabic(
+                img, 
+                block["text"], 
+                box_info, 
+                font_path, 
+                is_dark=block.get("is_dark", False),
+                is_gradient=block.get("is_gradient", False),
+                gradient_colors=block.get("gradient_colors", ["#8b5cf6", "#3b82f6"])
+            )
+            page_texts.append(block["text"])
+            
+        out_name = Path(page["raw_path"]).name
+        if not out_name.endswith(('.jpg', '.jpeg', '.png')): out_name += ".jpg"
+        img.save(os.path.join(final_output_dir, out_name), quality=95)
+        
+        full_text_script.append(f"--- صفحة {idx + 1} ({out_name}) ---")
+        full_text_script.extend(page_texts)
+        full_text_script.append("")
+        
+    txt_path = os.path.join(final_output_dir, f"{folder_name}_script.txt")
+    with open(txt_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(full_text_script))
+        
+    if callback: callback(f"✅ تم الانتهاء من التصدير في المجلد: {final_output_dir}")
+    return final_output_dir
+
+def get_slice_boxes(image_path, max_slice_height=5000):
+    """Split an image into at most 2 slices. If it fits in max_slice_height, return 1 box."""
+    img = load_image_rgb(image_path)
+    w, h = img.width, img.height
+    
+    if h <= max_slice_height:
+        return [(0, 0, w, h)]
+        
+    # Multi-slice logic: recursively split until all pieces are under max_slice_height
+    slices = []
+    current_y = 0
+    while current_y < h:
+        remaining_h = h - current_y
+        if remaining_h <= max_slice_height:
+            slices.append((0, current_y, w, h))
+            break
+            
+        # Find a good seam within the next max_slice_height window
+        # Look at the last 20% of the allowed window for a seam
+        search_start = current_y + int(max_slice_height * 0.8)
+        search_end = current_y + max_slice_height
+        
+        # Ensure we don't go out of bounds
+        search_end = min(search_end, h - 100)
+        search_start = min(search_start, search_end - 10)
+        
+        if search_start >= search_end:
+            # Fallback if image is too small or search range is invalid
+            next_cut = current_y + max_slice_height
+        else:
+            arr = np.array(img.crop((0, search_start, w, search_end)))
+            gray = np.mean(arr, axis=2) if len(arr.shape) == 3 else arr.astype(float)
+            row_var = np.var(gray, axis=1)
+            next_cut = search_start + int(np.argmin(row_var))
+            
+        slices.append((0, current_y, w, next_cut))
+        current_y = next_cut
+        
+    return slices
+
+def _process_parsed_json(data_list):
+    """Normalizes keys and ensures every object has valid coordinates."""
+    if not isinstance(data_list, list): return None
+    n = len(data_list)
+    valid_results = []
+    
+    for i, obj in enumerate(data_list):
+        if not isinstance(obj, dict) or 'text' not in obj: continue
+        
+        # Normalize various key names to 'box_2d'
+        for key in ['box_2d', 'box', 'coordinates', 'position', 'box_20', 'box_2']:
+            if key in obj:
+                obj['box_2d'] = obj.pop(key)
+                break
+        
+        coords = obj.get('box_2d')
+        # If missing, zeroed, or invalid, generate a vertical distribution fallback
+        if not coords or not isinstance(coords, list) or len(coords) < 4 or all(v == 0 for v in coords):
+            # Place bubbles in a column if the AI fails
+            y_start = int((i / n) * 800) + 50
+            y_end = y_start + 100
+            obj['box_2d'] = [y_start, 100, y_end, 900]
+            
+        valid_results.append(obj)
+    return valid_results if valid_results else None
+
+TRANSLATION_PROMPT = """Analyze the image and translate EVERY piece of text inside speech bubbles and narrative boxes into {lang}.
+
+### EXTRACTION RULES:
+1. **DO NOT SKIP ANY BUBBLE**: You MUST translate every single speech bubble, thought bubble, and narrative box.
+2. **SFX INSIDE BUBBLES**: If there are sound effects (SFX) or expressions INSIDE a bubble or a box, you MUST translate them. DO NOT skip them.
+3. **NO FLOATING TEXT**: Skip floating text or background SFX that is drawn directly on the background outside of any bubble or box.
+
+### OUTPUT FORMAT:
+ymin, xmin, ymax, xmax | Translated text
+
+### CRITICAL RULES:
+1. Use a 0-1000 scale for coordinates.
+2. DO NOT use brackets [ ] or curly braces {{ }}.
+3. NO markdown, no preamble, no explanations.
+4. One bubble = One entry. Do not split one bubble into multiple entries.
+
+If you skip the numbers or miss any bubble, the pipeline will fail. Focus strictly on translating EVERYTHING inside bubbles and boxes.
+"""
+
+
+def sanitize_gemini_json(raw_text):
+    """
+    Robust JSON extraction from Gemini responses.
+    Returns:
+      - list of dicts   → success (translation blocks)
+      - "__NO_TEXT__"    → Gemini says no text in image (skip this image)
+      - "__NO_IMAGE__"  → Gemini says no image was received (resend)
+      - None            → unparseable response (retry)
+    """
+    import json as pyjson
+
+    if not raw_text or not raw_text.strip():
+        return None
+
+    lower = raw_text.lower()
+    stripped = raw_text.strip()
+
+    # Quick check for explicit keywords we told Gemini to use
+    if stripped == "NO_IMAGE" or stripped == "no_image":
+        return "__NO_IMAGE__"
+
+    # --- Detect "no image received" ---
+    no_img_phrases = [
+        "no_image", "NO_IMAGE",
+        "no image", "i don't see", "i cannot see", "don't see an image",
+        "pas d'image", "aucune image", "je ne vois pas", "fournir une image",
+        "provide an image", "upload an image", "attach an image",
+        "لم أجد صورة", "لا توجد صورة", "أرسل صورة", "لم يتم إرفاق",
+        "no file", "no attachment", "can't find any image",
+        "i do not see", "there is no image", "image is missing",
+    ]
+    if any(phrase in lower for phrase in no_img_phrases):
+        return "__NO_IMAGE__"
+
+    # --- Detect "no text in image" ---
+    no_text_phrases = [
+        "no text", "aucun texte", "لا يوجد نص", "لا نص", "لم أجد نص",
+        "no dialogue", "no speech", "empty image", "pas de texte",
+        "i can't find any text", "there is no text", "no words",
+        "doesn't contain any text", "does not contain any text",
+        "no readable text", "cannot find any text", "i don't see any text",
+        "[]",  # empty JSON array = no text
+    ]
+    if stripped == "[]":
+        return "__NO_TEXT__"
+    if any(phrase in lower for phrase in no_text_phrases) and "[" not in stripped:
+        return "__NO_TEXT__"
+
+    # Strategy 1: Clean-Pipe Format (ymin, xmin, ymax, xmax | text)
+    # This is the most robust format to bypass Gemini UI's "Visual Chips"
+    clean_pipe_results = []
+    # Match: 120, 250, 180, 450 | some text
+    # Also handles cases with or without spaces/commas
+    pipe_matches = re.findall(r'(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\|\s*(.*)', raw_text)
+    if pipe_matches:
+        for m in pipe_matches:
+            try:
+                coords = [int(m[0]), int(m[1]), int(m[2]), int(m[3])]
+                text_val = m[4].strip()
+                if text_val:
+                    clean_pipe_results.append({"box_2d": coords, "text": text_val})
+            except: pass
+        if clean_pipe_results: return clean_pipe_results
+
+    # Strategy 2: Bracketed Pipe Format ([y, x, y, x] | text)
+    bracket_pipe_matches = re.findall(r'\[\s*(\d+)(?:[\s,]+)(\d+)(?:[\s,]+)(\d+)(?:[\s,]+)(\d+)\s*\]\s*\|\s*(.*)', raw_text)
+    if bracket_pipe_matches:
+        pipe_results = []
+        for m in bracket_pipe_matches:
+            try:
+                coords = [int(m[0]), int(m[1]), int(m[2]), int(m[3])]
+                text_val = m[4].strip()
+                if text_val:
+                    pipe_results.append({"box_2d": coords, "text": text_val})
+            except: pass
+        if pipe_results: return pipe_results
+
+    # Strategy 3: Standard JSON Array with aggressive repair
+    fixed = raw_text
+    for key in ['box_2d', 'box', 'coordinates', 'position', 'box_20', 'box_2', 'p']:
+        fixed = re.sub(r'"' + key + r'"\s*:\s*(?=[,}])', f'"{key}": [0,0,0,0]', fixed)
+        fixed = re.sub(r'"' + key + r'"\s*:\s*\[\s*\]', f'"{key}": [0,0,0,0]', fixed)
+        fixed = re.sub(r'"' + key + r'"\s*:\s*,', f'"{key}": [0,0,0,0],', fixed)
+    
+    json_match = re.search(r'\[\s*\{.*\}\s*\]', fixed, re.DOTALL)
+    if json_match:
+        try:
+            result = pyjson.loads(json_match.group(0))
+            if isinstance(result, list) and len(result) > 0:
+                return _process_parsed_json(result)
+        except: pass
+
+    # Strategy 4: Last Resort — Extract any text and use vertical fallback
+    texts = re.findall(r'"text"\s*:\s*"([^"]+)"', raw_text)
+    if not texts:
+        texts = re.findall(r'\|\s*(.+)', raw_text)
+    
+    if texts:
+        result = []
+        n = len(texts)
+        for i, t in enumerate(texts):
+            y_start = int((i / n) * 800) + 100
+            y_end = y_start + 100
+            result.append({"box_2d": [y_start, 100, y_end, 900], "text": t.strip()})
+        return result
+
+    return None
+
+def extract_chapter(input_dir, clean_dir, target_lang='Arabic', max_slice_height=5000, smart_stitch=False, callback=None):
+    import tempfile, shutil
+    input_path = Path(input_dir)
+    exts = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tiff'}
+    
+    def natural_sort_key(s):
+        return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', s.name)]
+        
+    images = sorted([f for f in input_path.iterdir() if f.suffix.lower() in exts], key=natural_sort_key)
+    clean_images = []
+    if clean_dir and os.path.exists(clean_dir):
+        clean_path_obj = Path(clean_dir)
+        matched_by_name = 0
+        for img_path in images:
+            c_path = clean_path_obj / img_path.name
+            if c_path.exists():
+                clean_images.append(c_path)
+                matched_by_name += 1
+            else:
+                clean_images.append(None)
+        if matched_by_name == 0:
+            clean_sorted = sorted([f for f in clean_path_obj.iterdir() if f.suffix.lower() in exts], key=natural_sort_key)
+            clean_images = [clean_sorted[i] if i < len(clean_sorted) else None for i in range(len(images))]
+    else:
+        clean_images = [None] * len(images)
+
+    if not images:
+        if callback: callback("❌ لم يتم العثور على صور!")
+        return None
+
+    if callback: callback(f"📂 تم العثور على {len(images)} صور")
+
+    # Use a temporary directory for the workspace instead of a persistent folder next to input
+    temp_workspace = tempfile.mkdtemp(prefix="ppcleaning_")
+    
+    smart_images, smart_clean = [], []
+    if smart_stitch:
+        if callback: callback("🧵 جاري الدمج الذكي للصور...")
+        Image.MAX_IMAGE_PIXELS = None
+        try:
+            imgs_objs = [load_image_rgb(p) for p in images]
+            w = max(i.width for i in imgs_objs)
+            h = sum(i.height for i in imgs_objs)
+            stitched = Image.new('RGB', (w, h))
+            y = 0
+            for i in imgs_objs:
+                stitched.paste(i, (0, y))
+                y += i.height
+                
+            has_clean = any(clean_images)
+            if has_clean:
+                stitched_clean = Image.new('RGB', (w, h))
+                y = 0
+                for c_path, r_img in zip(clean_images, imgs_objs):
+                    if c_path:
+                        c_img = load_image_rgb(c_path)
+                        if c_img.size != r_img.size: c_img = c_img.resize(r_img.size, Image.Resampling.LANCZOS)
+                        stitched_clean.paste(c_img, (0, y))
+                    else:
+                        stitched_clean.paste(r_img, (0, y))
+                    y += r_img.height
+            
+            arr = np.array(stitched)
+            gray = np.mean(arr, axis=2) if len(arr.shape) == 3 else arr.astype(float)
+            row_var = np.var(gray, axis=1)
+            smoothed = np.convolve(row_var, np.ones(10) / 10, mode='same')
+            
+            current_y, page_idx = 0, 1
+            while current_y < h:
+                if h - current_y <= max_slice_height:
+                    cut_y = h
+                else:
+                    search_start = current_y + int(max_slice_height * 0.6)
+                    search_end = min(current_y + max_slice_height, h)
+                    window = smoothed[search_start:search_end]
+                    cut_y = search_start + int(np.argmin(window)) if len(window) > 0 else current_y + max_slice_height
+                
+                slice_img = stitched.crop((0, current_y, w, cut_y))
+                p = os.path.join(temp_workspace, f"raw_{page_idx:03d}.png")
+                slice_img.save(p)
+                smart_images.append(Path(p))
+                
+                if has_clean:
+                    slice_clean = stitched_clean.crop((0, current_y, w, cut_y))
+                    c_p = os.path.join(temp_workspace, f"clean_{page_idx:03d}.png")
+                    slice_clean.save(c_p)
+                    smart_clean.append(Path(c_p))
+                
+                current_y = cut_y
+                page_idx += 1
+            images = smart_images
+            if has_clean: clean_images = smart_clean
+            if callback: callback(f"✅ تم تجهيز الصور المدمجة في مساحة العمل المؤقتة.")
+        except Exception as e:
+            if callback: callback(f"⚠️ فشل الدمج الذكي: {e}")
+            
+    # If not stitched, just copy original files to temp workspace for UI
+    if not smart_stitch:
+        for i, img_path in enumerate(images):
+            p = os.path.join(temp_workspace, f"raw_{i:03d}.png")
+            load_image_rgb(img_path).save(p)
+            smart_images.append(Path(p))
+            
+            if clean_images[i]:
+                c_p = os.path.join(temp_workspace, f"clean_{i:03d}.png")
+                load_image_rgb(clean_images[i]).save(c_p)
+                smart_clean.append(Path(c_p))
+            else:
+                smart_clean.append(None)
+        images = smart_images
+        clean_images = smart_clean
+
+    project_data = {"workspace": temp_workspace, "input_folder_name": input_path.name, "pages": []}
+
+    try:
+        if callback: callback("🚀 جاري بدء المتصفح لاستخراج النصوص...")
+        user_data_dir = os.path.join(os.path.dirname(__file__), 'chrome_profile')
+        os.makedirs(user_data_dir, exist_ok=True)
+        
+        with sync_playwright() as p:
+            browser = p.chromium.launch_persistent_context(
+                user_data_dir, 
+                channel="chrome", 
+                headless=False, 
+                args=['--disable-blink-features=AutomationControlled'],
+                permissions=['clipboard-read', 'clipboard-write']
+            )
+            browser.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+            page = browser.pages[0] if browser.pages else browser.new_page()
+            page.goto("https://gemini.google.com/app?hl=fr", timeout=60000)
+            page.wait_for_selector('div[contenteditable="true"], rich-textarea', timeout=60000)
+            
+            for idx, img_path in enumerate(images):
+                if callback: callback(f"\n━━━ الصفحة {idx + 1}/{len(images)} ━━━")
+                boxes = get_slice_boxes(str(img_path), max_slice_height)
+                
+                page_data = {
+                    "id": idx,
+                    "raw_path": str(img_path),
+                    "clean_path": str(clean_images[idx]) if clean_images[idx] else None,
+                    "width": Image.open(img_path).width,
+                    "height": Image.open(img_path).height,
+                    "blocks": []
+                }
+                
+                raw_img = load_image_rgb(img_path)
+                clean_img = load_image_rgb(clean_images[idx]) if clean_images[idx] else raw_img.copy()
+
+                for si, box in enumerate(boxes):
+                    fd, slice_temp = tempfile.mkstemp(suffix=".jpg")
+                    os.close(fd)
+                    raw_piece = raw_img.crop(box)
+                    raw_piece.save(slice_temp, 'JPEG', quality=85)
+                    pw, ph = raw_piece.size
+                    box_x_off, box_y_off = box[0], box[1]
+                    
+                    try:
+                        # Prepare image data once (outside retry loop)
+                        img_to_send = load_image_rgb(slice_temp)
+                        img_to_send = _resize_for_gemini(img_to_send, max_w=2000, max_h=5000)
+                        
+                        import io as _io, base64 as _b64
+                        output_b64 = _io.BytesIO()
+                        img_to_send.save(output_b64, 'JPEG', quality=85)
+                        b64_data = _b64.b64encode(output_b64.getvalue()).decode('utf-8')
+                        prompt_text = TRANSLATION_PROMPT.format(lang=target_lang)
+                        
+                        # === RETRY LOOP: up to 3 attempts per slice ===
+                        blocks_data = None
+                        last_text = ""
+                        skip_slice = False
+                        for attempt in range(3):
+                            try:
+                                if attempt > 0 and callback:
+                                    callback(f"   🔄 إعادة المحاولة ({attempt + 1}/3)...")
+                                
+                                # STEP 1: Navigate to fresh Gemini chat
+                                if page.is_closed():
+                                    page = browser.new_page()
+                                page.bring_to_front()
+                                page.goto("https://gemini.google.com/app?hl=fr", timeout=60000)
+                                page.wait_for_selector('.ql-editor[contenteditable="true"]', timeout=60000)
+                                time.sleep(1)
+                                
+                                # STEP 2: Force-clear the input
+                                page.evaluate("""
+                                () => {
+                                    const editors = document.querySelectorAll('.ql-editor[contenteditable="true"]');
+                                    const editor = editors[editors.length - 1];
+                                    if (editor) {
+                                        editor.focus();
+                                        document.execCommand('selectAll', false, null);
+                                        document.execCommand('delete', false, null);
+                                    }
+                                }
+                                """)
+                                time.sleep(0.5)
+                                
+                                # STEP 3: Inject image via ClipboardEvent
+                                page.evaluate(f"""
+                                async () => {{
+                                    const res = await fetch("data:image/jpeg;base64,{b64_data}");
+                                    const blob = await res.blob();
+                                    const file = new File([blob], "image.jpg", {{ type: "image/jpeg" }});
+                                    const dataTransfer = new DataTransfer();
+                                    dataTransfer.items.add(file);
+                                    
+                                    const editors = document.querySelectorAll('.ql-editor[contenteditable="true"]');
+                                    let target = editors[editors.length - 1] || document.activeElement;
+                                    target.focus();
+                                    
+                                    const event = new ClipboardEvent('paste', {{
+                                        clipboardData: dataTransfer,
+                                        bubbles: true,
+                                        cancelable: true
+                                    }});
+                                    target.dispatchEvent(event);
+                                }}
+                                """)
+
+                                # STEP 4: Wait for image attachment to appear
+                                image_ready = False
+                                for _wait in range(15):
+                                    time.sleep(1)
+                                    previews = page.locator('img[src*="blob:"], img[src*="data:"], .image-preview, .attachment-preview, .inline-image, [data-image-upload], .ql-image, img.ql-image, .media-upload-chip, .upload-chip, file-upload-chip').all()
+                                    if len(previews) > 0:
+                                        image_ready = True
+                                        time.sleep(1)
+                                        break
+                                if not image_ready:
+                                    if callback: callback(f"   ⚠️ الصورة لم تظهر، إعادة المحاولة...")
+                                    continue
+                                
+                                # STEP 5: Re-focus and type prompt
+                                page.evaluate("""
+                                () => {
+                                    const editors = document.querySelectorAll('.ql-editor[contenteditable="true"]');
+                                    const editor = editors[editors.length - 1];
+                                    if (editor) editor.focus();
+                                }
+                                """)
+                                time.sleep(0.3)
+                                page.keyboard.insert_text(prompt_text)
+                                time.sleep(0.5)
+                                
+                                # STEP 6: Verify input is not empty before sending
+                                input_text = page.evaluate("""
+                                () => {
+                                    const editors = document.querySelectorAll('.ql-editor[contenteditable="true"]');
+                                    const editor = editors[editors.length - 1];
+                                    return editor ? editor.innerText.trim() : '';
+                                }
+                                """)
+                                if len(input_text) < 20:
+                                    if callback: callback(f"   ⚠️ النص فُقد، إعادة الكتابة...")
+                                    page.evaluate("""
+                                    () => {
+                                        const editors = document.querySelectorAll('.ql-editor[contenteditable="true"]');
+                                        const editor = editors[editors.length - 1];
+                                        if (editor) {
+                                            editor.focus();
+                                            document.execCommand('selectAll', false, null);
+                                            document.execCommand('delete', false, null);
+                                        }
+                                    }
+                                    """)
+                                    time.sleep(0.3)
+                                    page.keyboard.insert_text(prompt_text)
+                                    time.sleep(0.5)
+                                
+                                # STEP 7: Send
+                                page.evaluate("""
+                                () => {
+                                    const editors = document.querySelectorAll('.ql-editor[contenteditable="true"]');
+                                    const editor = editors[editors.length - 1];
+                                    if (editor) editor.focus();
+                                }
+                                """)
+                                time.sleep(0.3)
+                                page.keyboard.press('Enter')
+                                
+                                # STEP 8: Wait for Gemini response (robust multi-selector)
+                                time.sleep(4)
+                                last_text = ""
+                                stable_count = 0
+                                blocks_data = None
+                                skip_slice = False
+                                
+                                # JavaScript function to extract response text from Gemini UI
+                                # CRITICAL: Use textContent on code/pre blocks — innerText strips [arrays]
+                                extract_response_js = """
+                                () => {
+                                    // Strategy 1: Look for the new "Pipe" format (y, x, y, x | text)
+                                    const allContent = document.querySelectorAll('message-content, .model-response-text, [data-message-author-role="model"]');
+                                    for (let i = allContent.length - 1; i >= 0; i--) {
+                                        const t = allContent[i].innerText || allContent[i].textContent || '';
+                                        // Detect 4 numbers followed by a pipe |
+                                        if (t.includes('|') && /\d+,\s*\d+,\s*\d+,\s*\d+/.test(t)) return t;
+                                        // Fallback for JSON
+                                        if ((t.includes('box_2d') || t.includes('position')) && t.includes('text')) return t;
+                                    }
+                                    
+                                    // Strategy 2: Code blocks
+                                    const codeBlocks = document.querySelectorAll('code, pre, .code-block');
+                                    for (let i = codeBlocks.length - 1; i >= 0; i--) {
+                                        const t = codeBlocks[i].innerText || '';
+                                        if (t.includes('|') || t.includes('box_2d')) return t;
+                                    }
+                                    // Strategy 2: Extract text from model response containers
+                                    const selectors = [
+                                        'message-content.model-response-text',
+                                        '.model-response-text',
+                                        'model-response message-content',
+                                        'message-content',
+                                        '[data-message-author-role="model"]',
+                                        '.markdown-main-panel'
+                                    ];
+                                    for (const sel of selectors) {
+                                        const els = document.querySelectorAll(sel);
+                                        if (els.length > 0) {
+                                            const last = els[els.length - 1];
+                                            // Handle visual detection elements (Gemini UI sometimes hides numbers in tooltips)
+                                            // Extract all text nodes, including those inside spans or interactive elements
+                                            const txt = Array.from(last.querySelectorAll('*')).map(e => e.textContent).join(' ') + ' ' + last.textContent;
+                                            if ((txt.includes('box_2d') || txt.includes('box')) && txt.length > 20) return txt;
+                                        }
+                                    }
+                                    // Strategy 3: Aggressive DOM scan for coordinate strings
+                                    const all = document.querySelectorAll('div, p, span');
+                                    for (let i = all.length - 1; i >= 0; i--) {
+                                        const t = all[i].textContent || '';
+                                        if (t.includes('|') && /\d+,\s*\d+/.test(t) && t.length < 2000) return t;
+                                    }
+                                    return '';
+                                }
+                                """
+                                
+                                for wait_tick in range(40):
+                                    try:
+                                        current_text = page.evaluate(extract_response_js)
+                                        if current_text and current_text == last_text and len(current_text) > 10:
+                                            stable_count += 1
+                                            if stable_count >= 2:
+                                                break
+                                        elif current_text != last_text:
+                                            stable_count = 0
+                                            last_text = current_text
+                                    except:
+                                        pass
+                                    if wait_tick % 5 == 0 and wait_tick > 0:
+                                        if callback: callback(f"     ⏳ جاري الانتظار... ({wait_tick*2}ث)")
+                                    time.sleep(2)
+                                
+                                # STEP 9: Parse response using smart sanitizer
+                                parsed = sanitize_gemini_json(last_text)
+                                
+                                if parsed == "__NO_IMAGE__":
+                                    if callback: callback(f"   ⚠️ جيميني لم يستلم الصورة، إعادة الإرسال...")
+                                    continue
+                                
+                                if parsed == "__NO_TEXT__":
+                                    if callback: callback(f"   ℹ️ لا يوجد نص في هذه القصاصة، تخطي...")
+                                    skip_slice = True
+                                    break
+                                
+                                if isinstance(parsed, list) and len(parsed) > 0:
+                                    blocks_data = parsed
+                                    break  # Success!
+                                
+                                # Debug: show what Gemini actually returned
+                                preview = (last_text[:200] + '...') if len(last_text) > 200 else last_text
+                                if callback: callback(f"   ⚠️ لم يتم استخراج JSON. رد جيميني: {preview}")
+                                    
+                            except Exception as retry_err:
+                                if callback: callback(f"   ⚠️ خطأ: {str(retry_err)[:100]}, إعادة المحاولة...")
+                                time.sleep(2)
+                        
+                        # Process results — use Gemini coordinates directly
+                        if blocks_data and isinstance(blocks_data, list):
+                            for block in blocks_data:
+                                # Prioritize 'box_2d' as the native Gemini detection key
+                                coords = block.get('box_2d') or block.get('box') or block.get('coordinates') or block.get('position')
+                                if coords and 'text' in block:
+                                    # Auto-detect normalized 0-1 vs 0-1000 scale
+                                    if all(0 <= v <= 1.1 for v in coords):
+                                        coords = [v * 1000 for v in coords]
+                                    elif all(v <= 1.5 for v in coords if v > 0):
+                                        coords = [v * 1000 for v in coords]
+                                    
+                                    ymin, xmin, ymax, xmax = coords
+                                    # Precise mapping from 0-1000 scale to slice pixels, then to global pixels
+                                    x1 = box_x_off + (xmin * pw) / 1000
+                                    y1 = box_y_off + (ymin * ph) / 1000
+                                    x2 = box_x_off + (xmax * pw) / 1000
+                                    y2 = box_y_off + (ymax * ph) / 1000
+                                    
+                                    # Ensure coordinates are within image bounds and integers
+                                    x1, y1 = max(0, int(x1)), max(0, int(y1))
+                                    x2, y2 = min(raw_img.width, int(x2)), min(raw_img.height, int(y2))
+                                    cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+                                    try:
+                                        crop_box = (max(0, int(x1)), max(0, int(y1)), min(raw_img.width, int(x2)), min(raw_img.height, int(y2)))
+                                        is_dark = np.mean(np.array(raw_img.crop(crop_box).convert('L'))) < 127
+                                    except:
+                                        is_dark = False
+                                    
+                                    page_data["blocks"].append({
+                                        "id": f"b_{idx}_{si}_{len(page_data['blocks'])}",
+                                        "text": block['text'],
+                                        "x": x1, "y": y1, "w": x2 - x1, "h": y2 - y1,
+                                        "cx": cx, "cy": cy,
+                                        "is_dark": bool(is_dark),
+                                        "is_gradient": False,
+                                        "gradient_colors": ["#8b5cf6", "#3b82f6"]
+                                    })
+                            if callback: callback(f"   ✅ تم استخراج {len(blocks_data)} فقاعة نصية")
+                        elif not skip_slice:
+                            if callback: callback(f"   ⚠️ فشل استخراج القصاصة {si+1} بعد 3 محاولات")
+                    except Exception as e:
+                        if callback: callback(f"   ⚠️ Slice {si + 1} error: {str(e)}")
+                    finally:
+                        try:
+                            os.remove(slice_temp)
+                        except: pass
+                
+                project_data["pages"].append(page_data)
+
+            browser.close()
+            return project_data
+
+    except Exception as e:
+        err_msg = str(e)
+        if callback: callback(f"❌ Error: {err_msg[:200]}")
+        return None

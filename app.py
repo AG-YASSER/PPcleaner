@@ -1,0 +1,864 @@
+"""
+PPCleaning — Webtoon Translation Tool
+Sends webtoon images directly to Google Gemini API for vision-based translation.
+Outputs a single clean TXT file.
+"""
+import os
+import sys
+import threading
+import json
+import webview
+import base64
+
+# ─── Processing State ───
+class AppState:
+    def __init__(self):
+        self.is_running = False
+        self.logs = []
+        self.window = None
+
+    def add_log(self, msg):
+        self.logs.append(msg)
+
+    def reset(self):
+        self.is_running = False
+        self.logs = []
+
+state = AppState()
+
+# ─── API for JS ↔ Python ───
+class Api:
+    def select_folder(self):
+        try:
+            result = state.window.create_file_dialog(webview.FOLDER_DIALOG, allow_multiple=False)
+            if not result: return ""
+            return result[0] if isinstance(result, (list, tuple)) else str(result)
+        except Exception:
+            return ""
+
+    def select_file(self):
+        try:
+            result = state.window.create_file_dialog(webview.OPEN_DIALOG, allow_multiple=False)
+            if not result: return ""
+            return result[0] if isinstance(result, (list, tuple)) else str(result)
+        except Exception:
+            return ""
+
+    def get_image_base64(self, path):
+        try:
+            with open(path, "rb") as f:
+                return "data:image/png;base64," + base64.b64encode(f.read()).decode('utf-8')
+        except: return ""
+
+    def start_extraction(self, input_dir, clean_dir, target_lang, slice_height, smart_stitch=False):
+        try:
+            if state.is_running: return json.dumps({"error": "العملية قيد التشغيل بالفعل."})
+            if not input_dir or not os.path.isdir(input_dir): return json.dumps({"error": "مجلد الصور غير صالح."})
+            
+            slice_h = int(slice_height) if slice_height else 5000
+            state.reset()
+            state.is_running = True
+            
+            def run():
+                try:
+                    def cb(msg): state.add_log(msg)
+                    from engine import extract_chapter
+                    data = extract_chapter(input_dir, clean_dir, target_lang, slice_h, smart_stitch, callback=cb)
+                    if data:
+                        state.project_data = data
+                        state.add_log("__EXTRACTION_DONE__")
+                    else:
+                        state.add_log("❌ فشل الاستخراج.")
+                except Exception as e:
+                    state.add_log(f"❌ خطأ فادح: {str(e)}")
+                finally:
+                    state.is_running = False
+            
+            threading.Thread(target=run, daemon=True).start()
+            return json.dumps({"status": "started"})
+        except Exception as e:
+            return json.dumps({"error": f"Internal Error: {str(e)}"})
+
+    def get_project_data(self):
+        if hasattr(state, 'project_data') and state.project_data:
+            return json.dumps(state.project_data)
+        return json.dumps({"error": "No data available."})
+
+    def render_project(self, project_data_json, output_dir, target_lang, watermark_path="", watermark_size=40, watermark_count=8):
+        try:
+            if state.is_running: return json.dumps({"error": "العملية قيد التشغيل بالفعل."})
+            if not output_dir: return json.dumps({"error": "حدد مجلد الإخراج."})
+            
+            data = json.loads(project_data_json)
+            state.reset()
+            state.is_running = True
+            
+            def run():
+                try:
+                    def cb(msg): state.add_log(msg)
+                    from engine import render_chapter
+                    final_path = render_chapter(data, output_dir, target_lang, watermark_path, int(watermark_size) if watermark_size else 40, int(watermark_count) if watermark_count else 8, callback=cb)
+                    state.add_log(f"__RENDER_DONE__::{final_path}")
+                except Exception as e:
+                    state.add_log(f"❌ خطأ فادح: {str(e)}")
+                finally:
+                    state.is_running = False
+            
+            threading.Thread(target=run, daemon=True).start()
+            return json.dumps({"status": "started"})
+        except Exception as e:
+            return json.dumps({"error": f"Internal Error: {str(e)}"})
+
+    def poll_logs(self):
+        try:
+            logs = list(state.logs)
+            state.logs.clear()
+            return json.dumps({"logs": logs, "running": state.is_running})
+        except: return json.dumps({"logs": [], "running": False})
+
+    def cancel(self):
+        state.is_running = False
+        return json.dumps({"status": "cancelled"})
+
+    def open_folder(self, path):
+        if os.path.isdir(path): os.startfile(path)
+
+# ─── HTML UI ───
+HTML = r'''<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PPCleaning — محرر الويبتون الذكي</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Zain:wght@300;400;700;900&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #030305; --panel: rgba(15, 15, 26, 0.7);
+  --accent: #7c3aed; --accent-glow: rgba(124, 58, 237, 0.4);
+  --text: #f8fafc; --text-dim: #94a3b8;
+  --border: rgba(255, 255, 255, 0.08);
+  --success: #10b981; --error: #ef4444;
+  --gradient: linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Outfit', 'Zain', sans-serif; }
+body { background: var(--bg); color: var(--text); overflow: hidden; height: 100vh; display: flex; align-items: center; justify-content: center; }
+
+/* Views */
+#settingsView, #editorView { width: 100%; height: 100%; display: flex; transition: opacity 0.3s; position: absolute; top:0; left:0; }
+#editorView { display: none; background: #0a0a0f; }
+
+/* Settings View UI */
+.bg-blobs { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; filter: blur(80px); opacity: 0.4; pointer-events: none; }
+.blob { position: absolute; width: 400px; height: 400px; background: var(--accent); border-radius: 50%; animation: move 20s infinite alternate; }
+.blob-2 { background: #3b82f6; left: 60%; top: 40%; animation-delay: -5s; }
+@keyframes move { from { transform: translate(-10%, -10%); } to { transform: translate(20%, 20%); } }
+
+.main-container { width: 900px; height: 700px; background: var(--panel); backdrop-filter: blur(20px); border: 1px solid var(--border); border-radius: 24px; display: flex; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); position: relative; overflow: hidden; margin: auto; }
+.sidebar { width: 320px; border-left: 1px solid var(--border); padding: 32px; display: flex; flex-direction: column; background: rgba(0,0,0,0.2); overflow-y: auto; }
+.logo { display: flex; align-items: center; gap: 12px; margin-bottom: 30px; }
+.logo-icon { width: 40px; height: 40px; background: var(--gradient); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 20px; }
+.logo-text h1 { font-size: 20px; font-weight: 800; }
+.logo-text p { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; }
+.input-group { margin-bottom: 20px; }
+.input-group label { display: block; font-size: 13px; margin-bottom: 8px; color: var(--text-dim); }
+.input-wrapper { display: flex; gap: 8px; }
+.input-wrapper input { flex: 1; background: rgba(255,255,255,0.05); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; color: white; font-size: 13px; outline: none; transition: all 0.3s; }
+.input-wrapper input:focus { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-glow); }
+.browse-btn { background: var(--border); border: none; border-radius: 10px; padding: 0 12px; color: white; cursor: pointer; font-size: 12px; transition: 0.2s; }
+.browse-btn:hover { background: rgba(255,255,255,0.15); }
+.content { flex: 1; padding: 32px; display: flex; flex-direction: column; }
+.console-container { flex: 1; background: #000; border: 1px solid var(--border); border-radius: 16px; overflow: hidden; display: flex; flex-direction: column; margin-bottom: 20px; }
+.console-header { padding: 10px 16px; background: #0a0a0f; border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 700; display: flex; justify-content: space-between; align-items: center; }
+.copy-btn { background: rgba(255,255,255,0.05); border: 1px solid var(--border); border-radius: 6px; color: var(--text-dim); padding: 4px 8px; font-size: 11px; cursor: pointer; transition: 0.2s; }
+.copy-btn:hover { background: rgba(255,255,255,0.1); color: white; }
+.console-body { flex: 1; padding: 16px; font-family: 'Consolas', monospace; font-size: 12px; overflow-y: auto; line-height: 1.6; }
+.log-line { margin-bottom: 4px; padding-right: 8px; }
+.log-line.info { color: var(--text-dim); }
+.log-line.success { color: var(--success); }
+.log-line.error { color: var(--error); }
+.btn-primary { background: var(--gradient); color: white; border: none; border-radius: 14px; padding: 16px; font-weight: 700; cursor: pointer; font-size: 15px; width: 100%; transition: 0.3s; box-shadow: 0 10px 20px -10px var(--accent-glow); }
+.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 15px 30px -10px var(--accent-glow); }
+.btn-primary:disabled { opacity: 0.5; pointer-events: none; }
+
+/* Editor View UI */
+.editor-sidebar { width: 320px; min-width: 280px; background: #11111a; border-left: 1px solid var(--border); display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+.editor-sidebar::-webkit-scrollbar { width: 6px; }
+.editor-sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+.sidebar-header { padding: 16px 20px; border-bottom: 1px solid var(--border); background: rgba(0,0,0,0.3); }
+.sidebar-body { flex: 1; overflow-y: auto; padding: 16px 20px; }
+.sidebar-body::-webkit-scrollbar { width: 5px; }
+.sidebar-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+.sidebar-footer { padding: 12px 20px; border-top: 1px solid var(--border); background: rgba(0,0,0,0.3); }
+.editor-main { flex: 1; position: relative; background: #050508; overflow: auto; display: flex; justify-content: center; padding: 40px; min-width: 0; }
+.canvas-wrapper { position: relative; transform-origin: top center; box-shadow: 0 0 40px rgba(0,0,0,0.8); direction: ltr; }
+.canvas-img { display: block; max-width: none; user-select: none; -webkit-user-drag: none; pointer-events: none; }
+#boxesLayer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; direction: ltr; }
+.bubble-box { position: absolute; border: 2px dashed rgba(255,255,255,0.4); background: rgba(0, 0, 0, 0.4); cursor: grab; display: flex; align-items: center; justify-content: center; box-sizing: border-box; direction: ltr; user-select: none; transition: border-color 0.15s, background 0.15s; }
+.bubble-box:hover { border-color: rgba(255,255,255,0.7); }
+.bubble-box:active { cursor: grabbing; }
+.bubble-box.selected { border: 2px solid var(--accent); background: rgba(124, 58, 237, 0.2); box-shadow: 0 0 15px var(--accent-glow); z-index: 10; }
+.bubble-box.gradient { border-color: #3b82f6; background: rgba(59, 130, 246, 0.2); }
+.bubble-text { color: white; text-align: center; font-size: 14px; pointer-events: none; user-select: none; padding: 5px; line-height: 1.2; font-weight: 700; text-shadow: 1px 1px 2px black; direction: rtl; overflow: hidden; }
+.resize-handle { position: absolute; width: 24px; height: 24px; z-index: 20; display: flex; align-items: center; justify-content: center; }
+.resize-handle::after { content: ""; width: 10px; height: 10px; background: white; border-radius: 50%; border: 2px solid var(--accent); box-shadow: 0 0 5px rgba(0,0,0,0.5); }
+.handle-tl { left: -12px; top: -12px; cursor: nw-resize; }
+.handle-tr { left: calc(100% - 12px); top: -12px; cursor: ne-resize; }
+.handle-bl { left: -12px; top: calc(100% - 12px); cursor: sw-resize; }
+.handle-br { left: calc(100% - 12px); top: calc(100% - 12px); cursor: se-resize; }
+
+/* Zoom Toolbar */
+.zoom-toolbar { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; gap: 4px; background: rgba(15, 15, 26, 0.9); backdrop-filter: blur(16px); border: 1px solid var(--border); border-radius: 12px; padding: 6px; z-index: 50; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
+.zoom-btn { width: 36px; height: 36px; background: none; border: none; color: var(--text-dim); font-size: 16px; cursor: pointer; border-radius: 8px; display: flex; align-items: center; justify-content: center; transition: all 0.15s; }
+.zoom-btn:hover { background: rgba(124, 58, 237, 0.2); color: white; }
+.zoom-btn.active { background: var(--accent); color: white; }
+.zoom-label { min-width: 48px; text-align: center; font-size: 12px; font-weight: 600; color: var(--text-dim); line-height: 36px; user-select: none; }
+.zoom-divider { width: 1px; background: var(--border); margin: 4px 2px; }
+
+/* Page Navigation Bar */
+.page-nav-bar { display: flex; align-items: center; gap: 0; background: #0a0a0f; border-bottom: 1px solid var(--border); padding: 0; min-height: 50px; }
+.page-nav-btn { width: 40px; min-width: 40px; height: 50px; background: none; border: none; color: var(--text-dim); font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; flex-shrink: 0; }
+.page-nav-btn:hover { color: white; background: rgba(124, 58, 237, 0.15); }
+.page-nav-btn:disabled { opacity: 0.2; cursor: default; }
+.page-nav-btn:disabled:hover { background: none; color: var(--text-dim); }
+.page-counter { min-width: 70px; text-align: center; font-size: 12px; font-weight: 600; color: var(--text-dim); flex-shrink: 0; padding: 0 6px; white-space: nowrap; }
+.page-list { display: flex; gap: 6px; overflow-x: auto; padding: 6px 4px; scroll-behavior: smooth; flex: 1; min-width: 0; align-items: center; }
+.page-list::-webkit-scrollbar { height: 4px; }
+.page-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
+.page-thumb { height: 36px; padding: 0 14px; background: #1a1a24; border-radius: 8px; cursor: pointer; border: 2px solid transparent; opacity: 0.6; transition: all 0.2s; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 12px; white-space: nowrap; user-select: none; }
+.page-thumb:hover { opacity: 0.85; background: #222230; }
+.page-thumb.active { border-color: var(--accent); opacity: 1; background: rgba(124, 58, 237, 0.15); color: white; box-shadow: 0 0 10px var(--accent-glow); }
+
+/* Section Labels */
+.section-label { font-size: 11px; font-weight: 700; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; margin-top: 16px; display: flex; align-items: center; gap: 6px; }
+.section-label:first-child { margin-top: 0; }
+.section-label .badge { background: var(--accent); color: white; font-size: 10px; padding: 1px 6px; border-radius: 10px; font-weight: 700; }
+
+/* Block List */
+.block-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; max-height: 180px; overflow-y: auto; }
+.block-list::-webkit-scrollbar { width: 4px; }
+.block-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+.block-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: rgba(255,255,255,0.03); border: 1px solid transparent; border-radius: 8px; cursor: pointer; transition: all 0.15s; font-size: 12px; direction: rtl; }
+.block-item:hover { background: rgba(255,255,255,0.06); border-color: var(--border); }
+.block-item.active { background: rgba(124, 58, 237, 0.15); border-color: var(--accent); }
+.block-item-num { width: 22px; height: 22px; border-radius: 6px; background: rgba(255,255,255,0.08); display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: var(--text-dim); flex-shrink: 0; }
+.block-item.active .block-item-num { background: var(--accent); color: white; }
+.block-item-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); }
+.block-item.active .block-item-text { color: white; }
+
+/* Properties Panel */
+.prop-panel { background: rgba(0,0,0,0.25); border-radius: 10px; padding: 14px; display: none; }
+.prop-panel.active { display: block; }
+.prop-panel textarea { width: 100%; height: 90px; background: rgba(0,0,0,0.5); border: 1px solid var(--border); color: white; padding: 10px; border-radius: 8px; resize: vertical; outline: none; margin-bottom: 10px; font-family: 'Zain', 'Outfit', sans-serif; font-size: 14px; direction: rtl; transition: border-color 0.2s; }
+.prop-panel textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+
+/* Toggle Switch */
+.toggle-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 12px; color: var(--text-dim); }
+.switch { position: relative; width: 38px; height: 20px; flex-shrink: 0; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.switch .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: rgba(255,255,255,0.1); border-radius: 20px; transition: 0.3s; }
+.switch .slider:before { content: ""; position: absolute; height: 14px; width: 14px; left: 3px; bottom: 3px; background: white; border-radius: 50%; transition: 0.3s; }
+.switch input:checked + .slider { background: var(--accent); }
+.switch input:checked + .slider:before { transform: translateX(18px); }
+
+.color-row { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; }
+.color-row input[type="color"] { border: none; width: 28px; height: 28px; border-radius: 6px; cursor: pointer; background: none; }
+.color-row span { font-size: 11px; color: var(--text-dim); }
+
+/* Action Buttons */
+.action-btn { width: 100%; padding: 10px; border: none; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 6px; margin-bottom: 6px; }
+.action-btn:hover { transform: translateY(-1px); }
+.action-btn.add { background: rgba(255,255,255,0.06); color: var(--text-dim); border: 1px dashed var(--border); }
+.action-btn.add:hover { background: rgba(255,255,255,0.1); color: white; border-color: var(--accent); }
+.action-btn.delete { background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); }
+.action-btn.delete:hover { background: rgba(239, 68, 68, 0.2); }
+
+.controls { display: flex; gap: 8px; }
+.ctrl-btn { flex: 1; padding: 12px; border: none; border-radius: 10px; font-weight: 700; cursor: pointer; font-size: 13px; transition: all 0.2s; }
+.ctrl-btn:hover { transform: translateY(-1px); }
+.ctrl-btn.save { background: var(--gradient); color: white; box-shadow: 0 6px 16px -6px var(--accent-glow); flex: 2; }
+.ctrl-btn.cancel { background: rgba(255,255,255,0.06); color: var(--text-dim); }
+</style>
+</head>
+<body>
+
+<!-- Settings View -->
+<div id="settingsView">
+  <div class="bg-blobs"><div class="blob"></div><div class="blob blob-2"></div></div>
+  <div class="main-container">
+    <div class="sidebar">
+      <div class="logo"><div class="logo-icon">✦</div><div class="logo-text"><h1>PPCleaning</h1><p>Pro Webtoon Localizer</p></div></div>
+      <div class="input-group"><label>مجلد الصور</label><div class="input-wrapper"><input type="text" id="inputDir" readonly placeholder="اختر المجلد..."><button class="browse-btn" onclick="browse('inputDir')">فتح</button></div></div>
+      <div class="input-group"><label>مجلد التنظيف (اختياري)</label><div class="input-wrapper"><input type="text" id="cleanDir" readonly placeholder="صور بدون نص..."><button class="browse-btn" onclick="browse('cleanDir')">فتح</button></div></div>
+      <div class="input-group"><label>مجلد الإخراج النهائي</label><div class="input-wrapper"><input type="text" id="outputDir" placeholder="مجلد الحفظ النهائي"><button class="browse-btn" onclick="browse('outputDir')">فتح</button></div></div>
+      <div class="input-group"><label>العلامة المائية (اختياري)</label><div class="input-wrapper"><input type="text" id="wmPath" readonly placeholder="صورة العلامة..."><button class="browse-btn" onclick="browse('wmPath', true)">فتح</button></div></div>
+      <div class="toggle-row"><label>الدمج الذكي (تحسين 5000px للتسريع)</label><input type="checkbox" id="smartStitch" checked></div>
+    </div>
+    <div class="content">
+      <div class="console-container">
+        <div class="console-header">
+          <span>سجل العمليات</span>
+          <button class="copy-btn" onclick="copyConsole(this)">نسخ السجل</button>
+        </div>
+        <div class="console-body" id="console">
+          <div class="log-line info">✦ مرحباً بك في وضع التحرير الجديد!</div>
+          <div class="log-line info">✦ سيقوم البوت باستخراج الترجمة أولاً، ثم سيعرضها لك لتتمكن من تعديل المربعات وتلوين الأسماء المهمة قبل الحفظ النهائي.</div>
+        </div>
+      </div>
+      <button class="btn-primary" id="startBtn" onclick="startExtraction()">استخراج الترجمات ⚡</button>
+    </div>
+  </div>
+</div>
+
+<!-- Editor View -->
+<div id="editorView">
+  <div style="display: flex; flex-direction: column; flex: 1; min-width: 0;">
+    <div class="page-nav-bar">
+      <button class="page-nav-btn" id="prevPageBtn" onclick="navigatePage(-1)" title="الصفحة السابقة">◀</button>
+      <div class="page-list" id="pageList"></div>
+      <button class="page-nav-btn" id="nextPageBtn" onclick="navigatePage(1)" title="الصفحة التالية">▶</button>
+      <div class="page-counter" id="pageCounter">0 / 0</div>
+    </div>
+    <div class="editor-main" id="editorMain" style="position: relative;">
+      <div class="canvas-wrapper" id="canvasWrapper">
+        <img id="canvasImg" class="canvas-img" src="">
+        <div id="boxesLayer"></div>
+      </div>
+      <!-- Zoom Toolbar -->
+      <div class="zoom-toolbar">
+        <button class="zoom-btn" onclick="zoomChange(-0.1)" title="تصغير (-)">−</button>
+        <div class="zoom-label" id="zoomLabel">100%</div>
+        <button class="zoom-btn" onclick="zoomChange(0.1)" title="تكبير (+)">+</button>
+        <div class="zoom-divider"></div>
+        <button class="zoom-btn" onclick="zoomFit()" title="ملائمة العرض">⊞</button>
+        <button class="zoom-btn" onclick="zoomReset()" title="الحجم الأصلي">1:1</button>
+      </div>
+    </div>
+  </div>
+  <div class="editor-sidebar">
+    <div class="sidebar-header">
+      <div class="logo"><div class="logo-icon">✎</div><div class="logo-text"><h1>المحرر المرئي</h1></div></div>
+    </div>
+    <div class="sidebar-body">
+      <!-- Block List -->
+      <div class="section-label">فقاعات النص <span class="badge" id="blockCount">0</span></div>
+      <div class="block-list" id="blockList"></div>
+      
+      <button class="action-btn add" onclick="addBoxCenter()">+ إضافة مربع جديد</button>
+
+      <!-- Properties Panel -->
+      <div class="prop-panel" id="propPanel">
+        <div class="section-label" style="margin-top:0;">تعديل الفقاعة المحددة</div>
+        <textarea id="propText" oninput="updateSelectedBox()" placeholder="اكتب النص المترجم هنا..."></textarea>
+        
+        <div class="toggle-row">
+          <span>نص غامق (خلفية بيضاء)</span>
+          <label class="switch"><input type="checkbox" id="propDark" onchange="updateSelectedBox()"><span class="slider"></span></label>
+        </div>
+        
+        <div class="toggle-row">
+          <span style="color: #3b82f6; font-weight: 600;">تدرج لوني</span>
+          <label class="switch"><input type="checkbox" id="propGrad" onchange="updateSelectedBox()"><span class="slider"></span></label>
+        </div>
+        <div class="color-row" id="colorRow" style="display:none;">
+          <input type="color" id="gradC1" value="#8b5cf6" onchange="updateSelectedBox()">
+          <input type="color" id="gradC2" value="#3b82f6" onchange="updateSelectedBox()">
+          <span>ألوان التدرج</span>
+        </div>
+        
+        <button class="action-btn delete" onclick="deleteSelectedBox()">🗑 حذف المربع</button>
+      </div>
+    </div>
+    <div class="sidebar-footer">
+      <div class="controls">
+        <button class="ctrl-btn save" onclick="startRendering()">حفظ وتصدير ✅</button>
+        <button class="ctrl-btn cancel" onclick="cancelEditor()">إلغاء</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let polling = null;
+let projectData = null;
+let currentPageIdx = 0;
+let selectedBoxId = null;
+let currentZoom = 1.0;
+
+// Zoom Controls
+function applyZoom() {
+  const wrapper = document.getElementById('canvasWrapper');
+  if (!wrapper) return;
+  wrapper.style.transform = `scale(${currentZoom})`;
+  document.getElementById('zoomLabel').textContent = Math.round(currentZoom * 100) + '%';
+}
+function zoomChange(delta) {
+  currentZoom = Math.max(0.2, Math.min(3.0, currentZoom + delta));
+  applyZoom();
+}
+function zoomFit() {
+  const main = document.getElementById('editorMain');
+  const img = document.getElementById('canvasImg');
+  if (!main || !img || !img.naturalWidth) return;
+  const fitW = (main.clientWidth - 80) / img.naturalWidth;
+  const fitH = (main.clientHeight - 80) / img.naturalHeight;
+  currentZoom = Math.min(fitW, fitH, 1.0);
+  applyZoom();
+}
+function zoomReset() {
+  currentZoom = 1.0;
+  applyZoom();
+}
+
+// Extractor Logic
+function addLog(msg) {
+  const container = document.getElementById('console');
+  if(!container) return;
+  const div = document.createElement('div');
+  div.className = 'log-line';
+  if(msg.includes('✅')||msg.includes('نجاح')) div.className += ' success';
+  else if(msg.includes('❌')||msg.includes('خطأ')||msg.includes('⚠️')) div.className += ' error';
+  else div.className += ' info';
+  div.textContent = msg;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+function copyConsole(btn) {
+  const container = document.getElementById('console');
+  if(!container) return;
+  const text = Array.from(container.querySelectorAll('.log-line')).map(div => div.textContent).join('\n');
+  
+  const showSuccess = () => {
+    const originalText = btn.textContent;
+    btn.textContent = 'تم النسخ!';
+    btn.style.color = 'var(--success)';
+    setTimeout(() => {
+      btn.textContent = originalText;
+      btn.style.color = '';
+    }, 2000);
+  };
+
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(showSuccess).catch(err => console.error(err));
+  } else {
+    // Fallback for non-secure contexts or webviews
+    const textArea = document.createElement("textarea");
+    textArea.value = text;
+    textArea.style.position = "fixed";
+    textArea.style.left = "-999999px";
+    textArea.style.top = "-999999px";
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    try {
+      document.execCommand('copy');
+      showSuccess();
+    } catch (err) {
+      console.error('Fallback: Oops, unable to copy', err);
+    }
+    textArea.remove();
+  }
+}
+
+async function browse(id, isFile = false) {
+  try {
+    const path = isFile ? await pywebview.api.select_file() : await pywebview.api.select_folder();
+    if(path) document.getElementById(id).value = path;
+  } catch(e) {}
+}
+
+async function startExtraction() {
+  const inDir = document.getElementById('inputDir').value;
+  const clDir = document.getElementById('cleanDir').value;
+  const smart = document.getElementById('smartStitch').checked;
+  if(!inDir) { addLog("❌ يرجى اختيار مجلد الصور أولاً!"); return; }
+
+  document.getElementById('startBtn').disabled = true;
+  document.getElementById('console').innerHTML = "";
+  addLog("🚀 بدء عملية استخراج النصوص والترجمة...");
+
+  const response = await pywebview.api.start_extraction(inDir, clDir, "Arabic", 5000, smart);
+  const result = JSON.parse(response);
+  if(result.error) { addLog("❌ " + result.error); document.getElementById('startBtn').disabled = false; return; }
+
+  polling = setInterval(async () => {
+    try {
+      const logsData = JSON.parse(await pywebview.api.poll_logs());
+      for (const log of logsData.logs) {
+        if(log === "__EXTRACTION_DONE__") {
+          clearInterval(polling);
+          await loadProjectData();
+          return;
+        }
+        addLog(log);
+      }
+    } catch(e) {}
+  }, 500);
+}
+
+// Editor Logic
+async function loadProjectData() {
+  addLog("📦 جاري تحميل المحرر المرئي...");
+  const resp = await pywebview.api.get_project_data();
+  projectData = JSON.parse(resp);
+  if(!projectData || projectData.error) {
+    addLog("❌ فشل تحميل بيانات المشروع.");
+    document.getElementById('startBtn').disabled = false;
+    return;
+  }
+  
+  document.getElementById('settingsView').style.display = 'none';
+  document.getElementById('editorView').style.display = 'flex';
+  
+  // Render thumbnails
+  const list = document.getElementById('pageList');
+  list.innerHTML = "";
+  
+  // Enable horizontal scrolling with mouse wheel
+  list.onwheel = (evt) => {
+    evt.preventDefault();
+    list.scrollLeft += evt.deltaY;
+  };
+
+  for(let i=0; i<projectData.pages.length; i++) {
+    const thumb = document.createElement('div');
+    thumb.className = 'page-thumb';
+    thumb.textContent = `${i+1}`;
+    thumb.onclick = () => loadPage(i);
+    list.appendChild(thumb);
+  }
+  loadPage(0);
+}
+
+function updateNavButtons() {
+  if (!projectData) return;
+  const total = projectData.pages.length;
+  document.getElementById('prevPageBtn').disabled = (currentPageIdx <= 0);
+  document.getElementById('nextPageBtn').disabled = (currentPageIdx >= total - 1);
+  document.getElementById('pageCounter').textContent = `${currentPageIdx + 1} / ${total}`;
+}
+
+function navigatePage(delta) {
+  if (!projectData) return;
+  const newIdx = currentPageIdx + delta;
+  if (newIdx >= 0 && newIdx < projectData.pages.length) {
+    loadPage(newIdx);
+  }
+}
+
+// Keyboard navigation for pages
+document.addEventListener('keydown', (e) => {
+  if (!projectData || document.activeElement.tagName === 'TEXTAREA' || document.activeElement.tagName === 'INPUT') return;
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    // In RTL layout: ArrowRight = previous, ArrowLeft = next
+    const delta = e.key === 'ArrowLeft' ? 1 : -1;
+    navigatePage(delta);
+    e.preventDefault();
+  }
+  if (e.key === 'Delete' && selectedBoxId) {
+    deleteSelectedBox();
+    e.preventDefault();
+  }
+});
+
+async function loadPage(idx) {
+  currentPageIdx = idx;
+  selectedBoxId = null;
+  document.getElementById('propPanel').classList.remove('active');
+  
+  const thumbs = document.querySelectorAll('.page-thumb');
+  thumbs.forEach(t => t.classList.remove('active'));
+  if (thumbs[idx]) {
+    thumbs[idx].classList.add('active');
+    thumbs[idx].scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+  }
+  
+  updateNavButtons();
+
+  const page = projectData.pages[idx];
+  const imgPath = page.clean_path ? page.clean_path : page.raw_path;
+  
+  // To avoid CORS/Local restrictions, request Base64 from Python
+  const b64 = await pywebview.api.get_image_base64(imgPath);
+  const canvasImg = document.getElementById('canvasImg');
+  canvasImg.src = b64;
+  
+  // Scroll editor to top when changing pages
+  document.getElementById('editorMain').scrollTop = 0;
+  
+  canvasImg.onload = () => {
+    renderBoxes();
+  };
+}
+
+let _isResizing = false;
+
+function renderBoxes() {
+  const layer = document.getElementById('boxesLayer');
+  layer.innerHTML = "";
+  const list = document.getElementById('blockList');
+  if (list) list.innerHTML = "";
+  
+  const page = projectData.pages[currentPageIdx];
+  if (page) {
+    document.getElementById('blockCount').textContent = page.blocks.length;
+  }
+  
+  page.blocks.forEach((b, idx) => {
+    // Canvas Box
+    const box = document.createElement('div');
+    box.className = 'bubble-box';
+    if(b.id === selectedBoxId) box.classList.add('selected');
+    if(b.is_gradient) box.classList.add('gradient');
+    
+    box.style.left = b.x + 'px';
+    box.style.top = b.y + 'px';
+    box.style.width = b.w + 'px';
+    box.style.height = b.h + 'px';
+    box.dataset.id = b.id;
+    
+    const text = document.createElement('div');
+    text.className = 'bubble-text';
+    text.textContent = b.text.length > 50 ? b.text.substring(0, 50) + "..." : b.text;
+    box.appendChild(text);
+    
+    // Resize handles
+    ['tl', 'tr', 'bl', 'br'].forEach(pos => {
+      const h = document.createElement('div');
+      h.className = `resize-handle handle-${pos}`;
+      h.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        startResize(e, b, pos, box);
+      });
+      box.appendChild(h);
+    });
+    
+    // Drag on box body
+    box.addEventListener('mousedown', (e) => {
+      if (_isResizing) return;
+      e.preventDefault();
+      startDrag(e, b, box);
+    });
+    
+    layer.appendChild(box);
+    
+    // Sidebar List Item
+    if (list) {
+      const item = document.createElement('div');
+      item.className = 'block-item';
+      if(b.id === selectedBoxId) item.classList.add('active');
+      item.dataset.id = b.id;
+      item.onclick = () => {
+        selectBox(b);
+        // Scroll to box in editor
+        document.getElementById('editorMain').scrollTo({
+          top: (b.y * currentZoom) - 100,
+          left: (b.x * currentZoom) - 100,
+          behavior: 'smooth'
+        });
+      };
+      
+      const num = document.createElement('div');
+      num.className = 'block-item-num';
+      num.textContent = idx + 1;
+      
+      const lbl = document.createElement('div');
+      lbl.className = 'block-item-text';
+      lbl.textContent = b.text || "مربع فارغ";
+      
+      item.appendChild(num);
+      item.appendChild(lbl);
+      list.appendChild(item);
+    }
+  });
+}
+
+function selectBox(b) {
+  selectedBoxId = b.id;
+  document.querySelectorAll('.bubble-box').forEach(el => {
+    el.classList.toggle('selected', el.dataset.id === b.id);
+  });
+  document.querySelectorAll('.block-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.id === b.id);
+  });
+  const panel = document.getElementById('propPanel');
+  panel.classList.add('active');
+  document.getElementById('propText').value = b.text;
+  document.getElementById('propDark').checked = b.is_dark;
+  document.getElementById('propGrad').checked = b.is_gradient;
+  document.getElementById('colorRow').style.display = b.is_gradient ? 'flex' : 'none';
+  if(b.gradient_colors && b.gradient_colors.length === 2) {
+    document.getElementById('gradC1').value = b.gradient_colors[0];
+    document.getElementById('gradC2').value = b.gradient_colors[1];
+  }
+}
+
+function updateSelectedBox() {
+  if(!selectedBoxId) return;
+  const page = projectData.pages[currentPageIdx];
+  const b = page.blocks.find(x => x.id === selectedBoxId);
+  if(!b) return;
+  b.text = document.getElementById('propText').value;
+  b.is_dark = document.getElementById('propDark').checked;
+  b.is_gradient = document.getElementById('propGrad').checked;
+  document.getElementById('colorRow').style.display = b.is_gradient ? 'flex' : 'none';
+  b.gradient_colors = [document.getElementById('gradC1').value, document.getElementById('gradC2').value];
+  renderBoxes();
+}
+
+function addBoxCenter() {
+  const page = projectData.pages[currentPageIdx];
+  const wrapper = document.getElementById('canvasWrapper');
+  const scrollY = document.getElementById('editorMain').scrollTop;
+  const newBox = {
+    id: "custom_" + Date.now(), text: "نص جديد هنا",
+    x: wrapper.clientWidth / 2 - 100, y: scrollY + 200,
+    w: 200, h: 100,
+    cx: wrapper.clientWidth / 2, cy: scrollY + 250,
+    is_dark: false, is_gradient: false, gradient_colors: ["#8b5cf6", "#3b82f6"]
+  };
+  page.blocks.push(newBox);
+  renderBoxes();
+  selectBox(newBox);
+}
+
+function deleteSelectedBox() {
+  if(!selectedBoxId) return;
+  const page = projectData.pages[currentPageIdx];
+  page.blocks = page.blocks.filter(x => x.id !== selectedBoxId);
+  selectedBoxId = null;
+  document.getElementById('propPanel').classList.remove('active');
+  renderBoxes();
+}
+
+// ── Drag Logic ──
+function startDrag(e, b, boxElem) {
+  selectBox(b);
+  const startX = e.clientX, startY = e.clientY;
+  const origX = b.x, origY = b.y;
+
+  function onMove(ev) {
+    const dx = (ev.clientX - startX) / currentZoom;
+    const dy = (ev.clientY - startY) / currentZoom;
+    b.x = origX + dx;
+    b.y = origY + dy;
+    boxElem.style.left = b.x + 'px';
+    boxElem.style.top = b.y + 'px';
+  }
+  function onUp() {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    b.cx = b.x + b.w / 2;
+    b.cy = b.y + b.h / 2;
+  }
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+// ── Resize Logic ──
+function startResize(e, b, handle, boxElem) {
+  _isResizing = true;
+  selectBox(b);
+  const startX = e.clientX, startY = e.clientY;
+  const origX = b.x, origY = b.y, origW = b.w, origH = b.h;
+
+  function onMove(ev) {
+    const dx = (ev.clientX - startX) / currentZoom;
+    const dy = (ev.clientY - startY) / currentZoom;
+
+    if (handle === 'br') {
+      b.w = Math.max(30, origW + dx);
+      b.h = Math.max(20, origH + dy);
+    } else if (handle === 'bl') {
+      b.w = Math.max(30, origW - dx);
+      b.x = origX + origW - b.w;
+      b.h = Math.max(20, origH + dy);
+    } else if (handle === 'tr') {
+      b.w = Math.max(30, origW + dx);
+      b.h = Math.max(20, origH - dy);
+      b.y = origY + origH - b.h;
+    } else if (handle === 'tl') {
+      b.w = Math.max(30, origW - dx);
+      b.x = origX + origW - b.w;
+      b.h = Math.max(20, origH - dy);
+      b.y = origY + origH - b.h;
+    }
+
+    boxElem.style.left = b.x + 'px';
+    boxElem.style.top = b.y + 'px';
+    boxElem.style.width = b.w + 'px';
+    boxElem.style.height = b.h + 'px';
+  }
+  function onUp() {
+    _isResizing = false;
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    document.body.style.cursor = '';
+    b.cx = b.x + b.w / 2;
+    b.cy = b.y + b.h / 2;
+  }
+  const cursorMap = { tl: 'nw-resize', tr: 'ne-resize', bl: 'sw-resize', br: 'se-resize' };
+  document.body.style.cursor = cursorMap[handle];
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+async function startRendering() {
+  const outDir = document.getElementById('outputDir').value;
+  const wmPath = document.getElementById('wmPath').value;
+  if(!outDir) { alert("يرجى العودة واختيار مجلد الإخراج أولاً."); return; }
+  
+  document.getElementById('editorView').style.display = 'none';
+  document.getElementById('settingsView').style.display = 'flex';
+  addLog("🚀 بدء تطبيق التعديلات والرسم النهائي...");
+  
+  const resp = await pywebview.api.render_project(JSON.stringify(projectData), outDir, "Arabic", wmPath, 40, 8);
+  const result = JSON.parse(resp);
+  if(result.error) { addLog("❌ " + result.error); document.getElementById('startBtn').disabled = false; return; }
+
+  polling = setInterval(async () => {
+    try {
+      const logsData = JSON.parse(await pywebview.api.poll_logs());
+      for (const log of logsData.logs) {
+        if(log.startsWith("__RENDER_DONE__")) {
+          const parts = log.split("::");
+          const finalPath = parts.length > 1 ? parts[1] : outDir;
+          clearInterval(polling);
+          addLog("🎉 تمت العملية بالكامل! يمكنك فتح مجلد الإخراج الآن.");
+          document.getElementById('startBtn').disabled = false;
+          pywebview.api.open_folder(finalPath);
+          return;
+        }
+        addLog(log);
+      }
+    } catch(e) {}
+  }, 500);
+}
+
+function cancelEditor() {
+  document.getElementById('editorView').style.display = 'none';
+  document.getElementById('settingsView').style.display = 'flex';
+  document.getElementById('startBtn').disabled = false;
+  addLog("🛑 تم إلغاء العملية.");
+}
+</script>
+</body>
+</html>'''
+
+def main():
+    api = Api()
+    window = webview.create_window(
+        'PPCleaning — Webtoon Pro',
+        html=HTML,
+        js_api=api,
+        width=940,
+        height=760,
+        min_size=(800, 600),
+        background_color='#030305',
+    )
+    state.window = window
+    webview.start(debug=False, private_mode=False)
+
+if __name__ == '__main__':
+    main()

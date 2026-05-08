@@ -1,0 +1,6 @@
+__pycache__/
+chrome_profile/
+*.pyc
+.vscode/
+# chapters/
+# output/
