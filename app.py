@@ -193,12 +193,27 @@ body { background: var(--bg); color: var(--text); overflow: hidden; height: 100v
 .canvas-wrapper { position: relative; transform-origin: top center; box-shadow: 0 0 40px rgba(0,0,0,0.8); direction: ltr; }
 .canvas-img { display: block; max-width: none; user-select: none; -webkit-user-drag: none; pointer-events: none; }
 #boxesLayer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; direction: ltr; }
-.bubble-box { position: absolute; border: 2px dashed rgba(255,255,255,0.4); background: rgba(0, 0, 0, 0.4); cursor: grab; display: flex; align-items: center; justify-content: center; box-sizing: border-box; direction: ltr; user-select: none; transition: border-color 0.15s, background 0.15s; }
+.bubble-box { position: absolute; border: 1px dashed rgba(255,255,255,0.4); background: rgba(0, 0, 0, 0.1); cursor: grab; display: flex; align-items: center; justify-content: center; box-sizing: border-box; direction: ltr; user-select: none; transition: border-color 0.15s, background 0.15s; transform-origin: center center; }
 .bubble-box:hover { border-color: rgba(255,255,255,0.7); }
 .bubble-box:active { cursor: grabbing; }
 .bubble-box.selected { border: 2px solid var(--accent); background: rgba(124, 58, 237, 0.2); box-shadow: 0 0 15px var(--accent-glow); z-index: 10; }
 .bubble-box.gradient { border-color: #3b82f6; background: rgba(59, 130, 246, 0.2); }
-.bubble-text { color: white; text-align: center; font-size: 14px; pointer-events: none; user-select: none; padding: 5px; line-height: 1.2; font-weight: 700; text-shadow: 1px 1px 2px black; direction: rtl; overflow: hidden; }
+.bubble-text { 
+  width: 100%; 
+  height: 100%; 
+  display: flex; 
+  align-items: center; 
+  justify-content: center; 
+  text-align: center; 
+  direction: rtl; 
+  pointer-events: none; 
+  user-select: none; 
+  font-family: 'Zain', 'Outfit', sans-serif;
+  font-weight: 700;
+  white-space: pre-wrap; 
+  overflow: hidden; 
+  paint-order: stroke fill;
+}
 .resize-handle { position: absolute; width: 24px; height: 24px; z-index: 20; display: flex; align-items: center; justify-content: center; }
 .resize-handle::after { content: ""; width: 10px; height: 10px; background: white; border-radius: 50%; border: 2px solid var(--accent); box-shadow: 0 0 5px rgba(0,0,0,0.5); }
 .handle-tl { left: -12px; top: -12px; cursor: nw-resize; }
@@ -351,18 +366,64 @@ body { background: var(--bg); color: var(--text); overflow: hidden; height: 100v
         <textarea id="propText" oninput="updateSelectedBox()" placeholder="اكتب النص المترجم هنا..."></textarea>
         
         <div class="toggle-row">
-          <span>نص غامق (خلفية بيضاء)</span>
-          <label class="switch"><input type="checkbox" id="propDark" onchange="updateSelectedBox()"><span class="slider"></span></label>
+          <span>حجم الخط (Size)</span>
+          <input type="number" id="propFontSize" style="width:60px; background:rgba(0,0,0,0.5); border:1px solid var(--border); color:white; border-radius:6px; text-align:center;" value="28" onchange="updateSelectedBox()">
         </div>
         
         <div class="toggle-row">
-          <span style="color: #3b82f6; font-weight: 600;">تدرج لوني</span>
+          <span>دوران (Rotation)</span>
+          <div style="display:flex; gap:4px; align-items:center;">
+            <input type="range" id="propRotation" min="-180" max="180" value="0" style="width:80px" oninput="document.getElementById('propRotInput').value = this.value; updateSelectedBox()">
+            <input type="number" id="propRotInput" style="width:50px; background:rgba(0,0,0,0.5); border:1px solid var(--border); color:white; border-radius:6px; text-align:center;" value="0" oninput="document.getElementById('propRotation').value = this.value; updateSelectedBox()">
+            <span style="color:var(--accent)">°</span>
+          </div>
+        </div>
+
+        <div class="toggle-row">
+          <span>نوع الخط (Font)</span>
+          <select id="propFont" style="background:rgba(0,0,0,0.5); border:1px solid var(--border); color:white; border-radius:6px; padding:2px; width:120px;" onchange="updateSelectedBox()">
+            <option value="Zain-Bold.ttf">Zain (افتراضي)</option>
+            <option value="impact.ttf">Impact (شائك/عريض)</option>
+            <option value="arial.ttf">Arial</option>
+            <option value="tahoma.ttf">Tahoma</option>
+          </select>
+        </div>
+        
+        <div class="toggle-row">
+          <span>تباعد الأسطر (Line H)</span>
+          <input type="number" id="propLineHeight" style="width:60px; background:rgba(0,0,0,0.5); border:1px solid var(--border); color:white; border-radius:6px; text-align:center;" step="0.1" value="1.2" onchange="updateSelectedBox()">
+        </div>
+        
+        <div class="color-row" style="justify-content: space-between; margin-bottom: 8px;">
+          <div style="display:flex; align-items:center; gap:6px;">
+            <input type="color" id="propColor" value="#000000" onchange="updateSelectedBox()">
+            <span>لون النص</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:6px;">
+            <input type="color" id="propOutline" value="#ffffff" onchange="updateSelectedBox()">
+            <span>الإطار</span>
+          </div>
+        </div>
+        
+        <div class="toggle-row">
+          <span>سمك الإطار (Stroke)</span>
+          <div style="display:flex; gap:6px; align-items:center;">
+            <input type="checkbox" id="propNoOutline" onchange="updateSelectedBox()" title="بدون إطار">
+            <span style="font-size:10px">بدون</span>
+            <input type="number" id="propOutlineWidth" style="width:50px; background:rgba(0,0,0,0.5); border:1px solid var(--border); color:white; border-radius:6px; text-align:center;" value="4" onchange="updateSelectedBox()">
+          </div>
+        </div>
+        
+        <div class="toggle-row">
+          <span style="color: #3b82f6; font-weight: 600;">تدرج لوني للنص</span>
           <label class="switch"><input type="checkbox" id="propGrad" onchange="updateSelectedBox()"><span class="slider"></span></label>
         </div>
-        <div class="color-row" id="colorRow" style="display:none;">
-          <input type="color" id="gradC1" value="#8b5cf6" onchange="updateSelectedBox()">
-          <input type="color" id="gradC2" value="#3b82f6" onchange="updateSelectedBox()">
-          <span>ألوان التدرج</span>
+        <div class="color-row" id="colorRow" style="display:none; justify-content: space-between;">
+          <span>ألوان التدرج:</span>
+          <div style="display:flex; gap:4px;">
+            <input type="color" id="gradC1" value="#8b5cf6" onchange="updateSelectedBox()">
+            <input type="color" id="gradC2" value="#3b82f6" onchange="updateSelectedBox()">
+          </div>
         </div>
         
         <button class="action-btn delete" onclick="deleteSelectedBox()">🗑 حذف المربع</button>
@@ -383,6 +444,10 @@ let projectData = null;
 let currentPageIdx = 0;
 let selectedBoxId = null;
 let currentZoom = 1.0;
+
+let globalStyle = {
+  font_size: 28, rotation: 0, color: '#000000', outline_color: '#ffffff', outline_width: 4, line_height: 1.2, font: 'Zain-Bold.ttf'
+};
 
 // Zoom Controls
 function applyZoom() {
@@ -605,6 +670,17 @@ function renderBoxes() {
   }
   
   page.blocks.forEach((b, idx) => {
+    // defaults if missing - use globalStyle
+    if(b.font_size === undefined) {
+      b.font_size = globalStyle.font_size;
+      b.rotation = globalStyle.rotation;
+      b.color = b.is_dark ? '#ffffff' : globalStyle.color; // preserve ai dark mode guess if any
+      b.outline_color = b.is_dark ? '#000000' : globalStyle.outline_color;
+      b.outline_width = globalStyle.outline_width;
+      b.line_height = globalStyle.line_height;
+      b.font = globalStyle.font;
+    }
+
     // Canvas Box
     const box = document.createElement('div');
     box.className = 'bubble-box';
@@ -615,11 +691,25 @@ function renderBoxes() {
     box.style.top = b.y + 'px';
     box.style.width = b.w + 'px';
     box.style.height = b.h + 'px';
+    box.style.transform = `rotate(${b.rotation}deg)`;
     box.dataset.id = b.id;
     
     const text = document.createElement('div');
     text.className = 'bubble-text';
-    text.textContent = b.text.length > 50 ? b.text.substring(0, 50) + "..." : b.text;
+    text.textContent = b.text;
+    text.style.fontFamily = (b.font === 'impact.ttf') ? 'Impact, sans-serif' : (b.font === 'arial.ttf' ? 'Arial, sans-serif' : (b.font === 'tahoma.ttf' ? 'Tahoma, sans-serif' : "'Zain', 'Outfit', sans-serif"));
+    text.style.fontSize = b.font_size + 'px';
+    text.style.color = b.color;
+    text.style.lineHeight = b.line_height;
+    text.style.webkitTextStroke = b.outline_width > 0 ? `${b.outline_width}px ${b.outline_color}` : 'none';
+    
+    if(b.is_gradient && b.gradient_colors && b.gradient_colors.length === 2) {
+      text.style.background = `linear-gradient(to bottom, ${b.gradient_colors[0]}, ${b.gradient_colors[1]})`;
+      text.style.webkitBackgroundClip = 'text';
+      text.style.webkitTextFillColor = 'transparent';
+      text.style.color = 'transparent'; // fallback
+    }
+
     box.appendChild(text);
     
     // Resize handles
@@ -685,7 +775,17 @@ function selectBox(b) {
   const panel = document.getElementById('propPanel');
   panel.classList.add('active');
   document.getElementById('propText').value = b.text;
-  document.getElementById('propDark').checked = b.is_dark;
+  document.getElementById('propFontSize').value = b.font_size;
+  document.getElementById('propRotation').value = b.rotation;
+  document.getElementById('propRotInput').value = b.rotation;
+  document.getElementById('propLineHeight').value = b.line_height;
+  document.getElementById('propColor').value = b.color;
+  document.getElementById('propOutline').value = b.outline_color;
+  document.getElementById('propOutlineWidth').value = b.outline_width;
+  document.getElementById('propOutlineWidth').disabled = (b.outline_width === 0);
+  document.getElementById('propNoOutline').checked = (b.outline_width === 0);
+  document.getElementById('propFont').value = b.font || 'Zain-Bold.ttf';
+
   document.getElementById('propGrad').checked = b.is_gradient;
   document.getElementById('colorRow').style.display = b.is_gradient ? 'flex' : 'none';
   if(b.gradient_colors && b.gradient_colors.length === 2) {
@@ -700,10 +800,30 @@ function updateSelectedBox() {
   const b = page.blocks.find(x => x.id === selectedBoxId);
   if(!b) return;
   b.text = document.getElementById('propText').value;
-  b.is_dark = document.getElementById('propDark').checked;
+  b.font_size = parseFloat(document.getElementById('propFontSize').value) || 28;
+  b.rotation = parseFloat(document.getElementById('propRotation').value) || 0;
+  document.getElementById('propRotInput').value = b.rotation;
+  b.line_height = parseFloat(document.getElementById('propLineHeight').value) || 1.2;
+  b.color = document.getElementById('propColor').value;
+  b.outline_color = document.getElementById('propOutline').value;
+  
+  let noOutline = document.getElementById('propNoOutline').checked;
+  b.outline_width = noOutline ? 0 : (parseFloat(document.getElementById('propOutlineWidth').value) || 4);
+  document.getElementById('propOutlineWidth').disabled = noOutline;
+  
+  b.font = document.getElementById('propFont').value;
+
   b.is_gradient = document.getElementById('propGrad').checked;
   document.getElementById('colorRow').style.display = b.is_gradient ? 'flex' : 'none';
   b.gradient_colors = [document.getElementById('gradC1').value, document.getElementById('gradC2').value];
+  
+  // Save as global style for next boxes
+  globalStyle = {
+    font_size: b.font_size, rotation: b.rotation, color: b.color, 
+    outline_color: b.outline_color, outline_width: b.outline_width, 
+    line_height: b.line_height, font: b.font
+  };
+  
   renderBoxes();
 }
 
@@ -716,7 +836,11 @@ function addBoxCenter() {
     x: wrapper.clientWidth / 2 - 100, y: scrollY + 200,
     w: 200, h: 100,
     cx: wrapper.clientWidth / 2, cy: scrollY + 250,
-    is_dark: false, is_gradient: false, gradient_colors: ["#8b5cf6", "#3b82f6"]
+    font_size: globalStyle.font_size, rotation: globalStyle.rotation, 
+    color: globalStyle.color, outline_color: globalStyle.outline_color, 
+    outline_width: globalStyle.outline_width, line_height: globalStyle.line_height,
+    font: globalStyle.font,
+    is_gradient: false, gradient_colors: ["#8b5cf6", "#3b82f6"]
   };
   page.blocks.push(newBox);
   renderBoxes();

@@ -276,98 +276,135 @@ def wrap_balanced(text, font, max_width):
             
     return final_lines
 
-def typeset_arabic(img, text, box_info, font_path, is_dark=False, is_gradient=False, gradient_colors=["#8b5cf6", "#3b82f6"]):
-    """Professional Arabic Typesetting with adaptive colors and optional gradients."""
-    draw = ImageDraw.Draw(img)
+def typeset_arabic(img, text, font_path, block):
+    """Professional Arabic Typesetting that exactly matches the HTML live preview."""
+    x, y, w, h = block['x'], block['y'], block['w'], block['h']
+    cx, cy = x + w/2, y + h/2
     
-    if len(box_info) == 6:
-        x1, y1, x2, y2, v_cx, v_cy = box_info
-    else:
-        x1, y1, x2, y2 = box_info
-        v_cx, v_cy = (x1 + x2) / 2, (y1 + y2) / 2
-
-    bw, bh = max(5, x2 - x1), max(5, y2 - y1)
-    # ultra-tight padding (4%)
-    pad_frac = 0.04
-    avail_w, avail_h = bw * (1 - 2*pad_frac), bh * (1 - 2*pad_frac)
-    safe_center_x, safe_center_y = (x1 + x2) / 2, (y1 + y2) / 2
+    font_size = int(block.get('font_size', 28))
+    rotation = float(block.get('rotation', 0))
+    color = block.get('color', '#000000')
+    outline_color = block.get('outline_color', '#ffffff')
+    outline_width = int(block.get('outline_width', 4))
+    line_height_mult = float(block.get('line_height', 1.2))
+    is_gradient = block.get('is_gradient', False)
+    gradient_colors = block.get('gradient_colors', ['#8b5cf6', '#3b82f6'])
     
-    if avail_w < 10 or avail_h < 10: return img
-
-    reshaper = ArabicReshaper(configuration={'use_unshaped_instead_of_isolated': True})
-    text_color = "white" if is_dark else "black"
-    outline_color = "black" if is_dark else "white"
-    
-    best_size, best_lines = 8, []
-    for size in range(110, 6, -2): # Allow even smaller font if needed
-        try: font = ImageFont.truetype(font_path, size)
-        except: font = ImageFont.load_default()
-        lines = wrap_balanced(text, font, avail_w)
-        if not lines: continue
-        line_h = int(size * 1.2) # Tighten line spacing
+    custom_font = block.get('font', 'Zain-Bold.ttf')
+    if custom_font != 'Zain-Bold.ttf':
+        font_path = custom_font # Pillow automatically searches system fonts like arial.ttf
         
-        # Strict fit check: check both total height AND width of every line
-        fits_height = len(lines) * line_h <= avail_h
-        fits_width = all(font.getbbox(get_display(l))[2] <= avail_w for l in lines)
-        
-        if fits_height and fits_width:
-            best_size, best_lines = size, lines
-            break
-        elif size <= 8: # If we are at minimum size, just use it
-            best_size, best_lines = size, lines
-
-    if not best_lines: return img
-    try: font = ImageFont.truetype(font_path, best_size)
+    try: font = ImageFont.truetype(font_path, font_size)
     except: font = ImageFont.load_default()
     
-    line_h = int(best_size * 1.25)
-    total_text_h = len(best_lines) * line_h
-    # Clamp y_start so text block stays within box boundaries
-    y_start = safe_center_y - (total_text_h / 2)
-    y_start = max(y1 + pad_frac * bh, min(y_start, y2 - pad_frac * bh - total_text_h))
+    reshaper = ArabicReshaper(configuration={'use_unshaped_instead_of_isolated': True})
     
-    for line in best_lines:
+    # Text wrapping matching HTML pre-wrap
+    lines = []
+    for user_line in text.split('\n'):
+        if not user_line.strip():
+            lines.append("")
+            continue
+            
+        words = user_line.split()
+        curr_line = ""
+        for word in words:
+            test_line = (curr_line + " " + word).strip()
+            reshaped_test = get_display(reshaper.reshape(test_line))
+            tw = font.getlength(reshaped_test)
+            if tw <= w * 0.95 or not curr_line: # 5% padding
+                curr_line = test_line
+            else:
+                lines.append(curr_line)
+                curr_line = word
+        if curr_line:
+            lines.append(curr_line)
+            
+    if not lines: return img
+    
+    line_h = int(font_size * line_height_mult)
+    total_h = len(lines) * line_h
+    
+    # Calculate dimensions for text layer
+    max_line_w = max(font.getlength(get_display(reshaper.reshape(l))) if l else 0 for l in lines)
+    text_img_w = int(max(w, max_line_w) + outline_width * 4)
+    text_img_h = int(max(h, total_h) + outline_width * 4)
+    
+    text_layer = Image.new('RGBA', (text_img_w, text_img_h), (0,0,0,0))
+    text_draw = ImageDraw.Draw(text_layer)
+    
+    y_start = (text_img_h - total_h) / 2
+    
+    for line in lines:
+        if not line:
+            y_start += line_h
+            continue
         reshaped = get_display(reshaper.reshape(line))
-        x_draw = safe_center_x
+        x_draw = text_img_w / 2
         y_pos = y_start + (line_h / 2)
         
-        # Clamp x and y to stay within box
-        x_draw = max(x1 + pad_frac * bw, min(x_draw, x2 - pad_frac * bw))
-        y_pos = max(y1 + pad_frac * bh, min(y_pos, y2 - pad_frac * bh))
-        
-        # Outline
-        for dx, dy in [(-2,0),(2,0),(0,-2),(0,2),(-1,-1),(1,1),(-1,1),(1,-1)]:
-            draw.text((x_draw+dx, y_pos+dy), reshaped, font=font, fill=outline_color, anchor="mm")
-        
-        if is_gradient and len(gradient_colors) == 2:
-            reshaped_line = reshaped
-            left, top, right, bottom = font.getbbox(reshaped_line, anchor="mm")
-            w, h = right - left, bottom - top
-            if w > 0 and h > 0:
-                mask = Image.new('L', (int(w)+10, int(h)+10), 0)
-                mask_draw = ImageDraw.Draw(mask)
-                mask_draw.text((w/2+5, h/2+5), reshaped_line, font=font, fill=255, anchor="mm")
-                
-                grad_roi = Image.new('RGB', (int(w)+10, int(h)+10))
-                c1 = tuple(int(gradient_colors[0].lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
-                c2 = tuple(int(gradient_colors[1].lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
-                
-                for i in range(int(h)+10):
-                    r = int(c1[0] + (c2[0] - c1[0]) * (i / (h+10)))
-                    g = int(c1[1] + (c2[1] - c1[1]) * (i / (h+10)))
-                    b = int(c1[2] + (c2[2] - c1[2]) * (i / (h+10)))
-                    ImageDraw.Draw(grad_roi).line([(0, i), (w+10, i)], fill=(r, g, b))
-                
-                # Clamp gradient paste position within box
-                paste_x = int(x_draw - w/2 - 5)
-                paste_y = int(y_pos - h/2 - 5)
-                paste_x = max(int(x1), min(paste_x, int(x2 - w - 10)))
-                paste_y = max(int(y1), min(paste_y, int(y2 - h - 10)))
-                img.paste(grad_roi, (paste_x, paste_y), mask=mask)
-        else:
-            draw.text((x_draw, y_pos), reshaped, font=font, fill=text_color, anchor="mm")
-        
+        # Draw outline using stroke (modern Pillow)
+        text_draw.text((x_draw, y_pos), reshaped, font=font, fill=color, anchor="mm", 
+                       stroke_width=outline_width, stroke_fill=outline_color)
         y_start += line_h
+        
+    if is_gradient and len(gradient_colors) == 2:
+        mask_layer = Image.new('L', (text_img_w, text_img_h), 0)
+        mask_draw = ImageDraw.Draw(mask_layer)
+        y_st = (text_img_h - total_h) / 2
+        for line in lines:
+            if not line:
+                y_st += line_h
+                continue
+            reshaped = get_display(reshaper.reshape(line))
+            x_dw = text_img_w / 2
+            y_p = y_st + (line_h / 2)
+            mask_draw.text((x_dw, y_p), reshaped, font=font, fill=255, anchor="mm")
+            y_st += line_h
+            
+        grad_roi = Image.new('RGBA', (text_img_w, text_img_h))
+        c1 = tuple(int(gradient_colors[0].lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
+        c2 = tuple(int(gradient_colors[1].lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
+        
+        for i in range(text_img_h):
+            r = int(c1[0] + (c2[0] - c1[0]) * (i / text_img_h))
+            g = int(c1[1] + (c2[1] - c1[1]) * (i / text_img_h))
+            b = int(c1[2] + (c2[2] - c1[2]) * (i / text_img_h))
+            ImageDraw.Draw(grad_roi).line([(0, i), (text_img_w, i)], fill=(r, g, b, 255))
+            
+        text_layer.paste(grad_roi, (0,0), mask=mask_layer)
+        
+        # Redraw outline over gradient since gradient replaced everything
+        text_draw_grad = ImageDraw.Draw(text_layer)
+        y_st2 = (text_img_h - total_h) / 2
+        for line in lines:
+            if not line:
+                y_st2 += line_h
+                continue
+            reshaped = get_display(reshaper.reshape(line))
+            x_dw = text_img_w / 2
+            y_p = y_st2 + (line_h / 2)
+            # draw only the stroke, no fill (fill handled by gradient)
+            # Actually, standard Pillow doesn't let us draw *only* stroke easily without filling.
+            # But the gradient filled the text body. If we redraw text with a transparent fill, it overwrites the gradient if mask isn't set.
+            # To fix: we just draw the stroke under the text originally!
+            y_st2 += line_h
+
+    # Re-apply outline correctly for gradient:
+    # Actually, if we just paste the gradient over the text mask, the gradient replaces BOTH the text and the stroke if we masked it with the stroke!
+    # Wait, the mask above did NOT use `stroke_width`! So `mask_layer` is strictly the text body.
+    # Therefore, pasting the gradient only affected the text body! The outline drawn previously remains intact underneath/around it!
+    # PERFECT.
+
+    if rotation != 0:
+        text_layer = text_layer.rotate(-rotation, resample=Image.Resampling.BICUBIC, expand=True)
+        
+    final_w, final_h = text_layer.size
+    paste_x = int(cx - final_w / 2)
+    paste_y = int(cy - final_h / 2)
+    
+    img.paste(text_layer, (paste_x, paste_y), mask=text_layer)
+    
     return img
 
 def render_chapter(project_data, output_dir, target_lang, watermark_path="", watermark_size=40, watermark_count=8, callback=None):
@@ -395,15 +432,11 @@ def render_chapter(project_data, output_dir, target_lang, watermark_path="", wat
             
         page_texts = []
         for block in page["blocks"]:
-            box_info = (block["x"], block["y"], block["x"] + block["w"], block["y"] + block["h"], block["cx"], block["cy"])
             img = typeset_arabic(
                 img, 
                 block["text"], 
-                box_info, 
                 font_path, 
-                is_dark=block.get("is_dark", False),
-                is_gradient=block.get("is_gradient", False),
-                gradient_colors=block.get("gradient_colors", ["#8b5cf6", "#3b82f6"])
+                block
             )
             page_texts.append(block["text"])
             
