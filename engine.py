@@ -456,22 +456,33 @@ def render_chapter(project_data, output_dir, target_lang, watermark_path="", wat
     return final_output_dir
 
 def get_slice_boxes(image_path, max_slice_height=5000):
-    """Split an image evenly into slices if it exceeds max_slice_height."""
+    """Smartly split an image into slices avoiding text cuts if it exceeds max_slice_height."""
     img = load_image_rgb(image_path)
     w, h = img.width, img.height
     
     if h <= max_slice_height:
         return [(0, 0, w, h)]
         
-    # Normal mode: Just slice evenly (e.g., into 2 slices)
-    num_slices = max(2, int(np.ceil(h / max_slice_height)))
-    slice_h = h // num_slices
+    arr = np.array(img)
+    gray = np.mean(arr, axis=2) if len(arr.shape) == 3 else arr.astype(float)
+    row_var = np.var(gray, axis=1)
+    smoothed = np.convolve(row_var, np.ones(10) / 10, mode='same')
     
     slices = []
-    for i in range(num_slices):
-        y1 = i * slice_h
-        y2 = min((i + 1) * slice_h, h)
-        slices.append((0, y1, w, y2))
+    current_y = 0
+    while current_y < h:
+        if h - current_y <= max_slice_height:
+            cut_y = h
+        else:
+            # Expand search window to find the absolute quietest point (seam)
+            search_start = current_y + int(max_slice_height * 0.3)
+            search_end = min(current_y + max_slice_height, h)
+            window = smoothed[search_start:search_end]
+            # Find the absolute quietest point in the window (min variance)
+            cut_y = search_start + int(np.argmin(window)) if len(window) > 0 else current_y + max_slice_height
+        
+        slices.append((0, current_y, w, cut_y))
+        current_y = cut_y
         
     return slices
 
@@ -671,8 +682,8 @@ def extract_chapter(input_dir, clean_dir, target_lang='Arabic', max_slice_height
         Image.MAX_IMAGE_PIXELS = None
         try:
             imgs_objs = [load_image_rgb(p) for p in images]
-            # Use the width of the first image as the standard to avoid black side-bars
-            target_w = imgs_objs[0].width if imgs_objs else 1000
+            # Use the max width of all images to preserve maximum quality
+            target_w = max([i.width for i in imgs_objs]) if imgs_objs else 1000
             h = sum(int(i.height * (target_w / i.width)) for i in imgs_objs)
             
             stitched = Image.new('RGB', (target_w, h))
@@ -705,39 +716,18 @@ def extract_chapter(input_dir, clean_dir, target_lang='Arabic', max_slice_height
                         stitched_clean.paste(r_img_resized, (0, y))
                     y += target_h
             
-            arr = np.array(stitched)
-            gray = np.mean(arr, axis=2) if len(arr.shape) == 3 else arr.astype(float)
-            row_var = np.var(gray, axis=1)
-            smoothed = np.convolve(row_var, np.ones(10) / 10, mode='same')
+            p = os.path.join(temp_workspace, "raw_000.png")
+            stitched.save(p)
+            smart_images.append(Path(p))
             
-            current_y, page_idx = 0, 1
-            while current_y < h:
-                if h - current_y <= max_slice_height:
-                    cut_y = h
-                else:
-                    # Expand search window to find the absolute quietest point (seam)
-                    search_start = current_y + int(max_slice_height * 0.3)
-                    search_end = min(current_y + max_slice_height, h)
-                    window = smoothed[search_start:search_end]
-                    # Find the absolute quietest point in the window (min variance)
-                    cut_y = search_start + int(np.argmin(window)) if len(window) > 0 else current_y + max_slice_height
-                
-                slice_img = stitched.crop((0, current_y, target_w, cut_y))
-                p = os.path.join(temp_workspace, f"raw_{page_idx:03d}.png")
-                slice_img.save(p)
-                smart_images.append(Path(p))
-                
-                if has_clean:
-                    slice_clean = stitched_clean.crop((0, current_y, target_w, cut_y))
-                    c_p = os.path.join(temp_workspace, f"clean_{page_idx:03d}.png")
-                    slice_clean.save(c_p)
-                    smart_clean.append(Path(c_p))
-                
-                current_y = cut_y
-                page_idx += 1
+            if has_clean:
+                c_p = os.path.join(temp_workspace, "clean_000.png")
+                stitched_clean.save(c_p)
+                smart_clean.append(Path(c_p))
+            
             images = smart_images
             if has_clean: clean_images = smart_clean
-            if callback: callback(f"✅ تم تجهيز الصور المدمجة في مساحة العمل المؤقتة.")
+            if callback: callback(f"✅ تم تجهيز الصور المدمجة كصفحة واحدة في المحرر.")
         except Exception as e:
             if callback: callback(f"⚠️ فشل الدمج الذكي: {e}")
             
