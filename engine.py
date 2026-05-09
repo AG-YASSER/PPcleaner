@@ -423,42 +423,22 @@ def render_chapter(project_data, output_dir, target_lang, watermark_path="", wat
     return final_output_dir
 
 def get_slice_boxes(image_path, max_slice_height=5000):
-    """Split an image into at most 2 slices. If it fits in max_slice_height, return 1 box."""
+    """Split an image evenly into slices if it exceeds max_slice_height."""
     img = load_image_rgb(image_path)
     w, h = img.width, img.height
     
     if h <= max_slice_height:
         return [(0, 0, w, h)]
         
-    # Multi-slice logic: recursively split until all pieces are under max_slice_height
+    # Normal mode: Just slice evenly (e.g., into 2 slices)
+    num_slices = max(2, int(np.ceil(h / max_slice_height)))
+    slice_h = h // num_slices
+    
     slices = []
-    current_y = 0
-    while current_y < h:
-        remaining_h = h - current_y
-        if remaining_h <= max_slice_height:
-            slices.append((0, current_y, w, h))
-            break
-            
-        # Find a good seam within the next max_slice_height window
-        # Look at the last 20% of the allowed window for a seam
-        search_start = current_y + int(max_slice_height * 0.8)
-        search_end = current_y + max_slice_height
-        
-        # Ensure we don't go out of bounds
-        search_end = min(search_end, h - 100)
-        search_start = min(search_start, search_end - 10)
-        
-        if search_start >= search_end:
-            # Fallback if image is too small or search range is invalid
-            next_cut = current_y + max_slice_height
-        else:
-            arr = np.array(img.crop((0, search_start, w, search_end)))
-            gray = np.mean(arr, axis=2) if len(arr.shape) == 3 else arr.astype(float)
-            row_var = np.var(gray, axis=1)
-            next_cut = search_start + int(np.argmin(row_var))
-            
-        slices.append((0, current_y, w, next_cut))
-        current_y = next_cut
+    for i in range(num_slices):
+        y1 = i * slice_h
+        y2 = min((i + 1) * slice_h, h)
+        slices.append((0, y1, w, y2))
         
     return slices
 
@@ -480,31 +460,30 @@ def _process_parsed_json(data_list):
         coords = obj.get('box_2d')
         # If missing, zeroed, or invalid, generate a vertical distribution fallback
         if not coords or not isinstance(coords, list) or len(coords) < 4 or all(v == 0 for v in coords):
-            # Place bubbles in a column if the AI fails
-            y_start = int((i / n) * 800) + 50
-            y_end = y_start + 100
-            obj['box_2d'] = [y_start, 100, y_end, 900]
+            # Spread bubbles more logically if AI fails (center-aligned column)
+            y_start = int((i / n) * 900) + 50
+            y_end = y_start + 60
+            obj['box_2d'] = [y_start, 300, y_end, 700]
             
         valid_results.append(obj)
     return valid_results if valid_results else None
 
 TRANSLATION_PROMPT = """Analyze the image and translate EVERY piece of text inside speech bubbles and narrative boxes into {lang}.
 
+### TRANSLATION STYLE & GRAMMAR:
+1. **LITERAL & PROFESSIONAL**: Provide a high-quality literal translation. DO NOT add, remove, or change the meaning of the original text. Maintain the exact tone and intent.
+2. **CONTEXTUAL ARABIC (CRITICAL)**: English lacks detailed gender/plurality markers. You MUST analyze the visual context (who is speaking, who they are talking to) and use the strictly correct Arabic masculine, feminine, or plural forms.
+
+### THE SINGLE-OBJECT RULE:
+1. **ONE BUBBLE = ONE BOX**: You MUST treat every speech bubble or narrative box as a single object. 
+2. **NEVER SPLIT**: Never split a single bubble into multiple coordinate boxes. Even if the text is long, return ONE box and ONE complete text entry.
+
 ### EXTRACTION RULES:
-1. **DO NOT SKIP ANY BUBBLE**: You MUST translate every single speech bubble, thought bubble, and narrative box.
-2. **SFX INSIDE BUBBLES**: If there are sound effects (SFX) or expressions INSIDE a bubble or a box, you MUST translate them. DO NOT skip them.
-3. **NO FLOATING TEXT**: Skip floating text or background SFX that is drawn directly on the background outside of any bubble or box.
+1. **MANDATORY COORDINATES**: Provide precise coordinates for every bubble.
+2. **SFX POLICY**: STRICTLY IGNORE all background sound effects (SFX). ONLY translate text if it is inside a clearly drawn speech bubble or narrative box.
 
 ### OUTPUT FORMAT:
 ymin, xmin, ymax, xmax | Translated text
-
-### CRITICAL RULES:
-1. Use a 0-1000 scale for coordinates.
-2. DO NOT use brackets [ ] or curly braces {{ }}.
-3. NO markdown, no preamble, no explanations.
-4. One bubble = One entry. Do not split one bubble into multiple entries.
-
-If you skip the numbers or miss any bubble, the pipeline will fail. Focus strictly on translating EVERYTHING inside bubbles and boxes.
 """
 
 
@@ -549,6 +528,7 @@ def sanitize_gemini_json(raw_text):
         "i can't find any text", "there is no text", "no words",
         "doesn't contain any text", "does not contain any text",
         "no readable text", "cannot find any text", "i don't see any text",
+        "no speech bubbles", "does not contain any speech bubbles",
         "[]",  # empty JSON array = no text
     ]
     if stripped == "[]":
@@ -609,9 +589,10 @@ def sanitize_gemini_json(raw_text):
         result = []
         n = len(texts)
         for i, t in enumerate(texts):
-            y_start = int((i / n) * 800) + 100
-            y_end = y_start + 100
-            result.append({"box_2d": [y_start, 100, y_end, 900], "text": t.strip()})
+            # Better distribution for fallback (centered and spread)
+            y_start = int((i / n) * 900) + 50
+            y_end = y_start + 60
+            result.append({"box_2d": [y_start, 300, y_end, 700], "text": t.strip()})
         return result
 
     return None
@@ -657,26 +638,39 @@ def extract_chapter(input_dir, clean_dir, target_lang='Arabic', max_slice_height
         Image.MAX_IMAGE_PIXELS = None
         try:
             imgs_objs = [load_image_rgb(p) for p in images]
-            w = max(i.width for i in imgs_objs)
-            h = sum(i.height for i in imgs_objs)
-            stitched = Image.new('RGB', (w, h))
+            # Use the width of the first image as the standard to avoid black side-bars
+            target_w = imgs_objs[0].width if imgs_objs else 1000
+            h = sum(int(i.height * (target_w / i.width)) for i in imgs_objs)
+            
+            stitched = Image.new('RGB', (target_w, h))
             y = 0
             for i in imgs_objs:
+                # Resize image to match target width while maintaining aspect ratio
+                if i.width != target_w:
+                    new_h = int(i.height * (target_w / i.width))
+                    i = i.resize((target_w, new_h), Image.Resampling.LANCZOS)
                 stitched.paste(i, (0, y))
                 y += i.height
                 
             has_clean = any(clean_images)
             if has_clean:
-                stitched_clean = Image.new('RGB', (w, h))
+                stitched_clean = Image.new('RGB', (target_w, h))
                 y = 0
-                for c_path, r_img in zip(clean_images, imgs_objs):
+                for c_path, r_img_orig in zip(clean_images, imgs_objs):
+                    # Use original r_img width/height for ratio consistency
+                    r_w, r_h = r_img_orig.width, r_img_orig.height
+                    target_h = int(r_h * (target_w / r_w))
+                    
                     if c_path:
                         c_img = load_image_rgb(c_path)
-                        if c_img.size != r_img.size: c_img = c_img.resize(r_img.size, Image.Resampling.LANCZOS)
+                        # Resize clean image to match the resized raw image
+                        c_img = c_img.resize((target_w, target_h), Image.Resampling.LANCZOS)
                         stitched_clean.paste(c_img, (0, y))
                     else:
-                        stitched_clean.paste(r_img, (0, y))
-                    y += r_img.height
+                        # If no clean image, resize the raw one
+                        r_img_resized = r_img_orig.resize((target_w, target_h), Image.Resampling.LANCZOS)
+                        stitched_clean.paste(r_img_resized, (0, y))
+                    y += target_h
             
             arr = np.array(stitched)
             gray = np.mean(arr, axis=2) if len(arr.shape) == 3 else arr.astype(float)
@@ -688,18 +682,20 @@ def extract_chapter(input_dir, clean_dir, target_lang='Arabic', max_slice_height
                 if h - current_y <= max_slice_height:
                     cut_y = h
                 else:
-                    search_start = current_y + int(max_slice_height * 0.6)
+                    # Expand search window to find the absolute quietest point (seam)
+                    search_start = current_y + int(max_slice_height * 0.3)
                     search_end = min(current_y + max_slice_height, h)
                     window = smoothed[search_start:search_end]
+                    # Find the absolute quietest point in the window (min variance)
                     cut_y = search_start + int(np.argmin(window)) if len(window) > 0 else current_y + max_slice_height
                 
-                slice_img = stitched.crop((0, current_y, w, cut_y))
+                slice_img = stitched.crop((0, current_y, target_w, cut_y))
                 p = os.path.join(temp_workspace, f"raw_{page_idx:03d}.png")
                 slice_img.save(p)
                 smart_images.append(Path(p))
                 
                 if has_clean:
-                    slice_clean = stitched_clean.crop((0, current_y, w, cut_y))
+                    slice_clean = stitched_clean.crop((0, current_y, target_w, cut_y))
                     c_p = os.path.join(temp_workspace, f"clean_{page_idx:03d}.png")
                     slice_clean.save(c_p)
                     smart_clean.append(Path(c_p))
@@ -985,12 +981,21 @@ def extract_chapter(input_dir, clean_dir, target_lang='Arabic', max_slice_height
                                     blocks_data = parsed
                                     break  # Success!
                                 
+                                if not last_text.strip():
+                                    if callback: callback(f"   ⚠️ لم يتم تلقي أي رد، إعادة المحاولة...")
+                                    continue
+                                
                                 # Debug: show what Gemini actually returned
                                 preview = (last_text[:200] + '...') if len(last_text) > 200 else last_text
-                                if callback: callback(f"   ⚠️ لم يتم استخراج JSON. رد جيميني: {preview}")
+                                if callback: callback(f"   ⚠️ استجابة غير صالحة. رد جيميني: {preview}")
+                                break # Stop retrying if Gemini returned a response but it wasn't valid text/JSON
                                     
                             except Exception as retry_err:
-                                if callback: callback(f"   ⚠️ خطأ: {str(retry_err)[:100]}, إعادة المحاولة...")
+                                err_msg = str(retry_err)
+                                if "closed" in err_msg.lower() or "target page" in err_msg.lower():
+                                    if callback: callback("   ❌ المتصفح أُغلق! يتم إيقاف العملية.")
+                                    return None
+                                if callback: callback(f"   ⚠️ خطأ: {err_msg[:100]}, إعادة المحاولة...")
                                 time.sleep(2)
                         
                         # Process results — use Gemini coordinates directly
