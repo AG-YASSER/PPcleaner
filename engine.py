@@ -289,6 +289,8 @@ def typeset_arabic(img, text, font_path, block):
     line_height_mult = float(block.get('line_height', 1.2))
     is_gradient = block.get('is_gradient', False)
     gradient_colors = block.get('gradient_colors', ['#8b5cf6', '#3b82f6'])
+    gradient_scale = float(block.get('gradient_scale', 100))
+    align = block.get('align', 'center')
     
     custom_font = block.get('font', 'Zain-Bold.ttf')
     if custom_font != 'Zain-Bold.ttf':
@@ -340,11 +342,21 @@ def typeset_arabic(img, text, font_path, block):
             y_start += line_h
             continue
         reshaped = get_display(reshaper.reshape(line))
-        x_draw = text_img_w / 2
+        
+        if align == 'right':
+            x_draw = text_img_w - outline_width*2 - 4
+            anch = "rm"
+        elif align == 'left':
+            x_draw = outline_width*2 + 4
+            anch = "lm"
+        else:
+            x_draw = text_img_w / 2
+            anch = "mm"
+            
         y_pos = y_start + (line_h / 2)
         
         # Draw outline using stroke (modern Pillow)
-        text_draw.text((x_draw, y_pos), reshaped, font=font, fill=color, anchor="mm", 
+        text_draw.text((x_draw, y_pos), reshaped, font=font, fill=color, anchor=anch, 
                        stroke_width=outline_width, stroke_fill=outline_color)
         y_start += line_h
         
@@ -357,19 +369,33 @@ def typeset_arabic(img, text, font_path, block):
                 y_st += line_h
                 continue
             reshaped = get_display(reshaper.reshape(line))
-            x_dw = text_img_w / 2
+            
+            if align == 'right':
+                x_dw = text_img_w - outline_width*2 - 4
+                anch = "rm"
+            elif align == 'left':
+                x_dw = outline_width*2 + 4
+                anch = "lm"
+            else:
+                x_dw = text_img_w / 2
+                anch = "mm"
+                
             y_p = y_st + (line_h / 2)
-            mask_draw.text((x_dw, y_p), reshaped, font=font, fill=255, anchor="mm")
+            mask_draw.text((x_dw, y_p), reshaped, font=font, fill=255, anchor=anch)
             y_st += line_h
             
         grad_roi = Image.new('RGBA', (text_img_w, text_img_h))
         c1 = tuple(int(gradient_colors[0].lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
         c2 = tuple(int(gradient_colors[1].lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
         
+        scale_ratio = gradient_scale / 100.0 if gradient_scale > 0 else 1.0
+        effective_h = text_img_h * scale_ratio
+        
         for i in range(text_img_h):
-            r = int(c1[0] + (c2[0] - c1[0]) * (i / text_img_h))
-            g = int(c1[1] + (c2[1] - c1[1]) * (i / text_img_h))
-            b = int(c1[2] + (c2[2] - c1[2]) * (i / text_img_h))
+            ratio = min(1.0, i / effective_h) if effective_h > 0 else 1.0
+            r = int(c1[0] + (c2[0] - c1[0]) * ratio)
+            g = int(c1[1] + (c2[1] - c1[1]) * ratio)
+            b = int(c1[2] + (c2[2] - c1[2]) * ratio)
             ImageDraw.Draw(grad_roi).line([(0, i), (text_img_w, i)], fill=(r, g, b, 255))
             
         text_layer.paste(grad_roi, (0,0), mask=mask_layer)
@@ -515,15 +541,16 @@ def _process_parsed_json(data_list):
 TRANSLATION_PROMPT = """Analyze the image and translate EVERY piece of text inside speech bubbles and narrative boxes into {lang}.
 
 ### TRANSLATION STYLE & GRAMMAR:
-1. **LITERAL & PROFESSIONAL**: Provide a high-quality literal translation. DO NOT add, remove, or change the meaning of the original text. Maintain the exact tone and intent.
+1. **LITERAL & PROFESSIONAL**: Provide a high-quality literal translation. DO NOT add, remove, or change the meaning. Maintain the exact tone and intent.
 2. **CONTEXTUAL ARABIC (CRITICAL)**: English lacks detailed gender/plurality markers. You MUST analyze the visual context (who is speaking, who they are talking to) and use the strictly correct Arabic masculine, feminine, or plural forms.
+3. **ACCURACY**: Ensure the translation is extremely accurate, natural, and free of clunky wording. It should sound like a professional webtoon/manga translation.
 
 ### THE SINGLE-OBJECT RULE:
 1. **ONE BUBBLE = ONE BOX**: You MUST treat every speech bubble or narrative box as a single object. 
 2. **NEVER SPLIT**: Never split a single bubble into multiple coordinate boxes. Even if the text is long, return ONE box and ONE complete text entry.
 
 ### EXTRACTION RULES:
-1. **MANDATORY COORDINATES**: Provide precise coordinates for every bubble.
+1. **MANDATORY COORDINATES**: Provide precise coordinates [ymin, xmin, ymax, xmax] for every bubble. Coordinates MUST be perfectly bounded to the bubble.
 2. **SFX POLICY**: STRICTLY IGNORE all background sound effects (SFX). ONLY translate text if it is inside a clearly drawn speech bubble or narrative box.
 
 ### OUTPUT FORMAT:

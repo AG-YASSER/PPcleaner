@@ -380,9 +380,21 @@ body { background: var(--bg); color: var(--text); overflow: hidden; height: 100v
         </div>
 
         <div class="toggle-row">
+          <span>المحاذاة (Align)</span>
+          <select id="propAlign" style="background:rgba(0,0,0,0.5); border:1px solid var(--border); color:white; border-radius:6px; padding:2px; width:120px;" onchange="updateSelectedBox()">
+            <option value="center">وسط (Center)</option>
+            <option value="right">يمين (Right)</option>
+            <option value="left">يسار (Left)</option>
+          </select>
+        </div>
+
+        <div class="toggle-row">
           <span>نوع الخط (Font)</span>
           <select id="propFont" style="background:rgba(0,0,0,0.5); border:1px solid var(--border); color:white; border-radius:6px; padding:2px; width:120px;" onchange="updateSelectedBox()">
             <option value="Zain-Bold.ttf">Zain (افتراضي)</option>
+            <option value="Sakkal Majalla">Sakkal Majalla</option>
+            <option value="Simplified Arabic">Simplified Arabic</option>
+            <option value="Times New Roman">Times New Roman</option>
             <option value="impact.ttf">Impact (شائك/عريض)</option>
             <option value="arial.ttf">Arial</option>
             <option value="tahoma.ttf">Tahoma</option>
@@ -418,11 +430,20 @@ body { background: var(--bg); color: var(--text); overflow: hidden; height: 100v
           <span style="color: #3b82f6; font-weight: 600;">تدرج لوني للنص</span>
           <label class="switch"><input type="checkbox" id="propGrad" onchange="updateSelectedBox()"><span class="slider"></span></label>
         </div>
-        <div class="color-row" id="colorRow" style="display:none; justify-content: space-between;">
-          <span>ألوان التدرج:</span>
-          <div style="display:flex; gap:4px;">
-            <input type="color" id="gradC1" value="#8b5cf6" onchange="updateSelectedBox()">
-            <input type="color" id="gradC2" value="#3b82f6" onchange="updateSelectedBox()">
+        <div class="color-row" id="colorRow" style="display:none; flex-direction:column; align-items:flex-start; margin-bottom:12px;">
+          <div style="display:flex; justify-content: space-between; width:100%;">
+            <span>ألوان التدرج:</span>
+            <div style="display:flex; gap:4px;">
+              <input type="color" id="gradC1" value="#8b5cf6" onchange="updateSelectedBox()">
+              <input type="color" id="gradC2" value="#3b82f6" onchange="updateSelectedBox()">
+            </div>
+          </div>
+          <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+             <span style="font-size:11px; color:var(--text-dim);">مقياس التدرج (النسبة)</span>
+             <div style="display:flex; gap:4px; align-items:center;">
+               <input type="range" id="gradScale" min="10" max="200" value="100" style="width:80px" oninput="document.getElementById('gradScaleVal').innerText = this.value + '%'; updateSelectedBox()">
+               <span id="gradScaleVal" style="font-size:11px; color:var(--accent); min-width:30px;">100%</span>
+             </div>
           </div>
         </div>
         
@@ -446,7 +467,7 @@ let selectedBoxId = null;
 let currentZoom = 1.0;
 
 let globalStyle = {
-  font_size: 28, rotation: 0, color: '#000000', outline_color: '#ffffff', outline_width: 4, line_height: 1.2, font: 'Zain-Bold.ttf'
+  font_size: 28, rotation: 0, color: '#000000', outline_color: '#ffffff', outline_width: 4, line_height: 1.2, font: 'Zain-Bold.ttf', align: 'center', gradient_scale: 100
 };
 
 // Zoom Controls
@@ -679,6 +700,8 @@ function renderBoxes() {
       b.outline_width = globalStyle.outline_width;
       b.line_height = globalStyle.line_height;
       b.font = globalStyle.font;
+      b.align = globalStyle.align;
+      b.gradient_scale = globalStyle.gradient_scale;
     }
 
     // Canvas Box
@@ -697,14 +720,16 @@ function renderBoxes() {
     const text = document.createElement('div');
     text.className = 'bubble-text';
     text.textContent = b.text;
-    text.style.fontFamily = (b.font === 'impact.ttf') ? 'Impact, sans-serif' : (b.font === 'arial.ttf' ? 'Arial, sans-serif' : (b.font === 'tahoma.ttf' ? 'Tahoma, sans-serif' : "'Zain', 'Outfit', sans-serif"));
+    text.style.fontFamily = (b.font === 'impact.ttf') ? 'Impact, sans-serif' : (b.font === 'arial.ttf' ? 'Arial, sans-serif' : (b.font === 'tahoma.ttf' ? 'Tahoma, sans-serif' : (b.font.endsWith('.ttf') ? "'Zain', 'Outfit', sans-serif" : b.font + ", sans-serif")));
     text.style.fontSize = b.font_size + 'px';
     text.style.color = b.color;
     text.style.lineHeight = b.line_height;
+    text.style.textAlign = b.align || 'center';
     text.style.webkitTextStroke = b.outline_width > 0 ? `${b.outline_width}px ${b.outline_color}` : 'none';
     
     if(b.is_gradient && b.gradient_colors && b.gradient_colors.length === 2) {
-      text.style.background = `linear-gradient(to bottom, ${b.gradient_colors[0]}, ${b.gradient_colors[1]})`;
+      const scale = b.gradient_scale !== undefined ? b.gradient_scale : 100;
+      text.style.background = `linear-gradient(to bottom, ${b.gradient_colors[0]} 0%, ${b.gradient_colors[1]} ${scale}%)`;
       text.style.webkitBackgroundClip = 'text';
       text.style.webkitTextFillColor = 'transparent';
       text.style.color = 'transparent'; // fallback
@@ -785,6 +810,7 @@ function selectBox(b) {
   document.getElementById('propOutlineWidth').disabled = (b.outline_width === 0);
   document.getElementById('propNoOutline').checked = (b.outline_width === 0);
   document.getElementById('propFont').value = b.font || 'Zain-Bold.ttf';
+  document.getElementById('propAlign').value = b.align || 'center';
 
   document.getElementById('propGrad').checked = b.is_gradient;
   document.getElementById('colorRow').style.display = b.is_gradient ? 'flex' : 'none';
@@ -792,6 +818,9 @@ function selectBox(b) {
     document.getElementById('gradC1').value = b.gradient_colors[0];
     document.getElementById('gradC2').value = b.gradient_colors[1];
   }
+  const scale = b.gradient_scale !== undefined ? b.gradient_scale : 100;
+  document.getElementById('gradScale').value = scale;
+  document.getElementById('gradScaleVal').innerText = scale + '%';
 }
 
 function updateSelectedBox() {
@@ -812,16 +841,19 @@ function updateSelectedBox() {
   document.getElementById('propOutlineWidth').disabled = noOutline;
   
   b.font = document.getElementById('propFont').value;
+  b.align = document.getElementById('propAlign').value;
 
   b.is_gradient = document.getElementById('propGrad').checked;
   document.getElementById('colorRow').style.display = b.is_gradient ? 'flex' : 'none';
   b.gradient_colors = [document.getElementById('gradC1').value, document.getElementById('gradC2').value];
+  b.gradient_scale = parseFloat(document.getElementById('gradScale').value) || 100;
   
   // Save as global style for next boxes
   globalStyle = {
     font_size: b.font_size, rotation: b.rotation, color: b.color, 
     outline_color: b.outline_color, outline_width: b.outline_width, 
-    line_height: b.line_height, font: b.font
+    line_height: b.line_height, font: b.font, align: b.align,
+    gradient_scale: b.gradient_scale
   };
   
   renderBoxes();
@@ -830,17 +862,30 @@ function updateSelectedBox() {
 function addBoxCenter() {
   const page = projectData.pages[currentPageIdx];
   const wrapper = document.getElementById('canvasWrapper');
-  const scrollY = document.getElementById('editorMain').scrollTop;
+  const main = document.getElementById('editorMain');
+  
+  const imgRect = wrapper.getBoundingClientRect();
+  const mainRect = main.getBoundingClientRect();
+  
+  const viewportCenterX = mainRect.left + mainRect.width / 2;
+  const viewportCenterY = mainRect.top + mainRect.height / 2;
+  
+  let targetX = (viewportCenterX - imgRect.left) / currentZoom;
+  let targetY = (viewportCenterY - imgRect.top) / currentZoom;
+  
+  if (targetY < 0) targetY = 200;
+  if (targetX < 0) targetX = 200;
+
   const newBox = {
     id: "custom_" + Date.now(), text: "نص جديد هنا",
-    x: wrapper.clientWidth / 2 - 100, y: scrollY + 200,
+    x: targetX - 100, y: targetY - 50,
     w: 200, h: 100,
-    cx: wrapper.clientWidth / 2, cy: scrollY + 250,
+    cx: targetX, cy: targetY,
     font_size: globalStyle.font_size, rotation: globalStyle.rotation, 
     color: globalStyle.color, outline_color: globalStyle.outline_color, 
     outline_width: globalStyle.outline_width, line_height: globalStyle.line_height,
-    font: globalStyle.font,
-    is_gradient: false, gradient_colors: ["#8b5cf6", "#3b82f6"]
+    font: globalStyle.font, align: globalStyle.align,
+    is_gradient: false, gradient_colors: ["#8b5cf6", "#3b82f6"], gradient_scale: globalStyle.gradient_scale
   };
   page.blocks.push(newBox);
   renderBoxes();
