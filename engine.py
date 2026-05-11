@@ -538,23 +538,40 @@ def _process_parsed_json(data_list):
         valid_results.append(obj)
     return valid_results if valid_results else None
 
-TRANSLATION_PROMPT = """Analyze the image and translate EVERY piece of text inside speech bubbles and narrative boxes into {lang}.
+TRANSLATION_PROMPT = """Role: You are an Expert Webtoon Localization Engine and Master Typesetter.
 
-### TRANSLATION STYLE & GRAMMAR:
-1. **LITERAL & PROFESSIONAL**: Provide a high-quality literal translation. DO NOT add, remove, or change the meaning. Maintain the exact tone and intent.
-2. **CONTEXTUAL ARABIC (CRITICAL)**: English lacks detailed gender/plurality markers. You MUST analyze the visual context (who is speaking, who they are talking to) and use the strictly correct Arabic masculine, feminine, or plural forms.
-3. **ACCURACY**: Ensure the translation is extremely accurate, natural, and free of clunky wording. It should sound like a professional webtoon/manga translation.
+Input: This is an image slice from a Webtoon page containing English or Korean text.
+
+Objective: Extract and translate ALL text located strictly INSIDE speech bubbles, thought bubbles, and narrative boxes into {lang}.
+
+### STRICT PROCESSING DIRECTIVES:
+
+**Target Elements**: You must ONLY process text located strictly INSIDE speech bubbles, thought bubbles, and narrative boxes.
+
+**Excluded Elements**: You must STRICTLY IGNORE:
+- All Sound Effects (SFX) outside of bubbles
+- Chapter titles and watermark credits
+- Background signs and environmental text
+- Any text that is NOT inside a clearly drawn bubble or box
+
+### TRANSLATION QUALITY:
+1. **NATURAL & ENGAGING**: The tone must be natural, engaging, and flow perfectly like a human-made localization. Adapt idioms appropriately for Arabic readers.
+2. **CONTEXTUAL ARABIC (CRITICAL)**: Analyze the visual context (who is speaking, who they are talking to) and use the strictly correct Arabic masculine, feminine, or plural forms. English/Korean lacks these markers — you MUST infer them from the art.
+3. **PROFESSIONAL GRADE**: The translation should sound like it was done by a professional webtoon/manga localization team. No clunky, robotic, or literal-sounding output.
 
 ### THE SINGLE-OBJECT RULE:
-1. **ONE BUBBLE = ONE BOX**: You MUST treat every speech bubble or narrative box as a single object. 
+1. **ONE BUBBLE = ONE BOX**: Treat every speech bubble or narrative box as a single object.
 2. **NEVER SPLIT**: Never split a single bubble into multiple coordinate boxes. Even if the text is long, return ONE box and ONE complete text entry.
 
-### EXTRACTION RULES:
-1. **MANDATORY COORDINATES**: Provide precise coordinates [ymin, xmin, ymax, xmax] for every bubble. Coordinates MUST be perfectly bounded to the bubble.
-2. **SFX POLICY**: STRICTLY IGNORE all background sound effects (SFX). ONLY translate text if it is inside a clearly drawn speech bubble or narrative box.
+### COORDINATE PRECISION:
+1. **MANDATORY**: Provide precise bounding coordinates [ymin, xmin, ymax, xmax] for every bubble. Coordinates MUST be tightly bounded to the bubble edges.
+2. **ACCURACY**: Coordinates must perfectly frame the bubble — not too loose, not too tight.
 
-### OUTPUT FORMAT:
+### OUTPUT FORMAT (MANDATORY — NO EXCEPTIONS):
+Return ONLY lines in this exact pipe-separated format, one per bubble:
 ymin, xmin, ymax, xmax | Translated text
+
+Do NOT return JSON, markdown, explanations, or any other format. ONLY the pipe-separated lines above.
 """
 
 
