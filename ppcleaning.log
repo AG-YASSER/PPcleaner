@@ -1,0 +1,304 @@
+2026-05-11 13:04:55,170 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 13:05:14,359 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 13:05:20,271 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 13:05:30,759 - INFO - Starting extraction: input=C:\Users\hp\Desktop\1, clean=C:\Users\hp\Desktop\1 - Copy
+2026-05-11 13:20:44,910 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 13:20:50,327 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 13:20:54,630 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 13:21:03,316 - INFO - Starting extraction: input=C:\Users\hp\Desktop\1, clean=C:\Users\hp\Desktop\1 - Copy
+2026-05-11 13:40:46,068 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 13:40:51,622 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 13:40:56,446 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 13:41:02,476 - INFO - Starting extraction: input=C:\Users\hp\Desktop\1, clean=C:\Users\hp\Desktop\1 - Copy
+2026-05-11 13:46:56,628 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 13:47:02,014 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 13:47:07,046 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 13:47:16,283 - INFO - Starting extraction: input=C:\Users\hp\Desktop\1, clean=C:\Users\hp\Desktop\1 - Copy
+2026-05-11 14:09:50,683 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 14:09:56,590 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 14:10:00,741 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 14:10:04,962 - INFO - Starting extraction: input=C:\Users\hp\Desktop\1, clean=C:\Users\hp\Desktop\1 - Copy
+2026-05-11 14:23:32,669 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 14:23:39,885 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 14:23:43,885 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 14:23:48,154 - INFO - Starting extraction: input=C:\Users\hp\Desktop\1, clean=C:\Users\hp\Desktop\1 - Copy
+2026-05-11 14:28:36,203 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 14:34:20,869 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 14:34:39,007 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 14:34:49,822 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 14:35:01,533 - WARNING - OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+2026-05-11 14:35:01,533 - WARNING - OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+2026-05-11 14:35:16,760 - INFO - Starting extraction: input=C:\Users\hp\Desktop\ScraperTool\library\The Berserker's Second Playthrough\Chapter 27, clean=C:\Users\hp\Desktop\The berserker\ch27\clean
+2026-05-11 14:43:06,803 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 14:43:16,837 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 14:43:26,324 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 14:43:39,972 - WARNING - OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+2026-05-11 14:43:39,973 - WARNING - OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+2026-05-11 14:43:46,458 - INFO - Starting extraction: input=C:\Users\hp\Desktop\ScraperTool\library\The Berserker's Second Playthrough\Chapter 27, clean=C:\Users\hp\Downloads\output
+2026-05-11 16:24:12,272 - INFO - Starting render: output=C:\Users\hp\Desktop\The berserker\ch27\final
+2026-05-11 16:39:03,100 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 16:39:07,618 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 16:39:11,425 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 16:39:17,150 - INFO - Starting extraction: input=C:\Users\hp\Desktop\1, clean=C:\Users\hp\Desktop\1 - Copy
+2026-05-11 16:41:30,605 - INFO - Starting render: output=C:\Users\hp\Desktop\1 - Copy (2)
+2026-05-11 16:42:14,866 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 16:42:22,995 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 16:42:29,411 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 16:45:36,911 - INFO - Starting extraction: input=C:\Users\hp\Desktop\1, clean=C:\Users\hp\Desktop\1 - Copy
+2026-05-11 16:47:23,861 - INFO - Starting render: output=C:\Users\hp\Desktop\1 - Copy (2)
+2026-05-11 16:49:50,936 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 16:49:56,329 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 16:50:00,442 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 16:50:05,269 - INFO - Starting extraction: input=C:\Users\hp\Desktop\1, clean=C:\Users\hp\Desktop\1 - Copy
+2026-05-11 16:51:35,301 - INFO - Starting render: output=C:\Users\hp\Desktop\1 - Copy (2)
+2026-05-11 16:51:35,415 - ERROR - Rendering Error
+Traceback (most recent call last):
+  File "C:\Users\hp\Desktop\TranslationTool\PPcleaner\app.py", line 204, in run
+    final_path = render_chapter(data, output_dir, target_lang, watermark_path, int(watermark_size) if watermark_size else 40, int(watermark_count) if watermark_count else 8, callback=cb)
+  File "C:\Users\hp\Desktop\TranslationTool\PPcleaner\engine.py", line 483, in render_chapter
+    img = typeset_arabic(
+        img,
+    ...<2 lines>...
+        block
+    )
+  File "C:\Users\hp\Desktop\TranslationTool\PPcleaner\engine.py", line 331, in typeset_arabic
+    max_line_w = max(font.getlength(get_display(reshaper.reshape(l))) if l else 0 for l in lines)
+  File "C:\Users\hp\Desktop\TranslationTool\PPcleaner\engine.py", line 331, in <genexpr>
+    max_line_w = max(font.getlength(get_display(reshaper.reshape(l))) if l else 0 for l in lines)
+                                    ^^^^^^^^^^^
+NameError: cannot access free variable 'get_display' where it is not associated with a value in enclosing scope
+2026-05-11 16:52:22,440 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 16:52:27,314 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 16:52:31,418 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 16:52:49,221 - INFO - Starting extraction: input=C:\Users\hp\Desktop\1, clean=C:\Users\hp\Desktop\1 - Copy
+2026-05-11 16:54:51,813 - INFO - Starting render: output=C:\Users\hp\Desktop\1 - Copy (2)
+2026-05-11 16:54:52,125 - ERROR - Rendering Error
+Traceback (most recent call last):
+  File "C:\Users\hp\Desktop\TranslationTool\PPcleaner\app.py", line 204, in run
+    final_path = render_chapter(data, output_dir, target_lang, watermark_path, int(watermark_size) if watermark_size else 40, int(watermark_count) if watermark_count else 8, callback=cb)
+  File "C:\Users\hp\Desktop\TranslationTool\PPcleaner\engine.py", line 483, in render_chapter
+    img = typeset_arabic(
+        img,
+    ...<2 lines>...
+        block
+    )
+  File "C:\Users\hp\Desktop\TranslationTool\PPcleaner\engine.py", line 331, in typeset_arabic
+    max_line_w = max(font.getlength(get_display(reshaper.reshape(l))) if l else 0 for l in lines)
+  File "C:\Users\hp\Desktop\TranslationTool\PPcleaner\engine.py", line 331, in <genexpr>
+    max_line_w = max(font.getlength(get_display(reshaper.reshape(l))) if l else 0 for l in lines)
+                                    ^^^^^^^^^^^
+NameError: cannot access free variable 'get_display' where it is not associated with a value in enclosing scope
+2026-05-11 16:59:26,911 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 16:59:32,473 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 16:59:36,529 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 17:00:55,127 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 17:00:59,689 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 17:01:04,769 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 17:01:09,599 - INFO - Starting extraction: input=C:\Users\hp\Desktop\1, clean=C:\Users\hp\Desktop\1 - Copy
+2026-05-11 17:02:46,445 - INFO - Starting render: output=C:\Users\hp\Desktop\1 - Copy (2)
+2026-05-11 17:05:04,521 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 17:05:10,633 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 17:05:14,785 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 17:05:24,605 - INFO - Starting extraction: input=C:\Users\hp\Desktop\1, clean=C:\Users\hp\Desktop\1 - Copy
+2026-05-11 17:09:05,639 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 17:12:47,558 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 17:12:52,049 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 17:12:55,856 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 17:13:03,037 - INFO - Starting extraction: input=C:\Users\hp\Desktop\1, clean=C:\Users\hp\Desktop\1 - Copy
+2026-05-11 17:49:58,523 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 17:50:03,772 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 17:50:08,260 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 17:50:14,808 - INFO - Starting extraction: input=C:\Users\hp\Desktop\1, clean=C:\Users\hp\Desktop\1 - Copy
+2026-05-11 17:53:41,996 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 17:53:47,667 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 17:53:51,580 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 17:53:58,192 - INFO - Starting extraction: input=C:\Users\hp\Desktop\1, clean=C:\Users\hp\Desktop\1 - Copy
+2026-05-11 18:28:09,440 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 18:28:29,463 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 18:28:34,619 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 18:28:50,723 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 18:29:17,094 - INFO - Starting extraction: input=C:\Users\hp\Downloads\The Berserker's Second Playthrough Chapter 27 - Read Online _ Asura Scans, clean=C:\Users\hp\Downloads\output
+2026-05-11 19:28:44,323 - INFO - Starting render: output=C:\Users\hp\Desktop\The berserker\ch27\final
+2026-05-11 19:47:58,026 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 19:48:04,745 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 19:48:10,001 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 19:48:29,610 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 19:48:52,481 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 19:49:15,305 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 19:50:15,702 - INFO - Starting extraction: input=C:\Users\hp\Desktop\1, clean=C:\Users\hp\Desktop\1 - Copy
+2026-05-11 19:50:15,729 - ERROR - Extraction Error
+Traceback (most recent call last):
+  File "C:\Users\hp\Desktop\TranslationTool\PPcleaner\app.py", line 166, in run
+    from engine import extract_chapter
+  File "C:\Users\hp\Desktop\TranslationTool\PPcleaner\engine.py", line 500
+    img = typeset_arabic(
+                        ^
+SyntaxError: '(' was never closed
+2026-05-11 19:50:50,073 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 19:50:54,683 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 19:50:58,498 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 19:51:04,552 - INFO - Starting extraction: input=C:\Users\hp\Desktop\1, clean=C:\Users\hp\Desktop\1 - Copy
+2026-05-11 19:51:04,573 - ERROR - Extraction Error
+Traceback (most recent call last):
+  File "C:\Users\hp\Desktop\TranslationTool\PPcleaner\app.py", line 166, in run
+    from engine import extract_chapter
+  File "C:\Users\hp\Desktop\TranslationTool\PPcleaner\engine.py", line 500
+    img = typeset_arabic(
+                        ^
+SyntaxError: '(' was never closed
+2026-05-11 19:52:50,728 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 19:52:53,929 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 19:52:59,049 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 19:53:04,788 - INFO - Starting extraction: input=C:\Users\hp\Desktop\1, clean=C:\Users\hp\Desktop\1 - Copy
+2026-05-11 19:57:13,034 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 19:57:18,449 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 19:57:22,985 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 19:57:40,710 - INFO - Starting extraction: input=C:\Users\hp\Desktop\1, clean=C:\Users\hp\Desktop\1 - Copy
+2026-05-11 20:04:02,375 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 20:04:08,345 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 20:04:13,704 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-11 20:04:22,134 - INFO - Starting extraction: input=C:\Users\hp\Desktop\1, clean=C:\Users\hp\Desktop\1 - Copy
+2026-05-13 17:48:28,199 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-13 17:48:39,612 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-13 17:48:58,610 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-13 17:49:10,102 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-13 17:49:32,636 - INFO - Starting extraction: input=C:\Users\hp\Downloads\fog land\Fog Land Chapter 21 - Scythe Scans, clean=C:\Users\hp\Downloads\fog land\Fog Land Chapter 21 - Scythe Scans\clean
+2026-05-13 22:27:53,069 - INFO - Starting render: output=C:\Users\hp\Downloads\fog land\Fog Land Chapter 21 - Scythe Scans\final
+2026-05-14 19:35:18,468 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-14 19:35:24,213 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-14 19:35:28,494 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-14 19:35:32,639 - WARNING - OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+2026-05-14 19:35:32,640 - WARNING - OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+2026-05-14 19:35:47,315 - INFO - Starting extraction: input=C:\Users\hp\Desktop\1, clean=C:\Users\hp\Desktop\2, watermark=C:\Users\hp\Downloads\Logos\ChatGPT Image Apr 16, 2026, 10_20_11 AM.png
+2026-05-14 19:48:52,715 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-14 19:49:00,372 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-14 19:49:05,772 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-14 19:49:08,933 - WARNING - OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+2026-05-14 19:49:08,934 - WARNING - OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+2026-05-14 19:49:19,116 - INFO - Starting extraction: input=C:\Users\hp\Desktop\1, clean=C:\Users\hp\Desktop\2, watermark=C:\Users\hp\Downloads\Logos\ChatGPT Image Apr 16, 2026, 10_20_11 AM.png
+2026-05-14 20:05:58,014 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-14 20:06:04,557 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-14 20:06:10,043 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-14 20:06:12,673 - WARNING - OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+2026-05-14 20:06:12,674 - WARNING - OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+2026-05-14 20:06:21,688 - INFO - Starting extraction: input=C:\Users\hp\Desktop\1, clean=C:\Users\hp\Desktop\2, watermark=C:\Users\hp\Downloads\Logos\ChatGPT Image Apr 16, 2026, 10_20_11 AM.png
+2026-05-14 20:19:01,667 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-14 20:22:04,820 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-14 20:22:09,962 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-14 20:22:14,442 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-14 20:22:17,930 - WARNING - OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+2026-05-14 20:22:17,931 - WARNING - OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+2026-05-14 20:22:24,379 - INFO - Starting extraction: input=C:\Users\hp\Desktop\1, clean=C:\Users\hp\Desktop\2, watermark=C:\Users\hp\Downloads\Logos\ChatGPT Image Apr 16, 2026, 10_20_11 AM.png
+2026-05-14 20:34:42,521 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-14 20:34:50,843 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-14 20:34:56,908 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-14 20:35:15,578 - WARNING - OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+2026-05-14 20:35:15,578 - WARNING - OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+2026-05-14 20:35:22,441 - INFO - Starting extraction: input=C:\Users\hp\Downloads\fog land\Fog Land Chapter 22 - Scythe Scans, clean=C:\Users\hp\Downloads\output, watermark=C:\Users\hp\Downloads\Logos\ChatGPT Image Apr 16, 2026, 10_20_11 AM.png
+2026-05-15 00:08:59,297 - INFO - Starting render: output=C:\Users\hp\Downloads\fog land\Fog Land Chapter 22 - Scythe Scans\final
+2026-05-15 00:54:15,871 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-15 00:56:48,455 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-15 00:56:55,081 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-15 00:57:03,653 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-15 00:57:07,593 - WARNING - OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+2026-05-15 00:57:07,594 - WARNING - OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+2026-05-15 00:57:16,894 - INFO - Starting extraction: input=C:\Users\hp\Downloads\fog land\Fog Land Chapter 23 - Scythe Scans, clean=C:\Users\hp\Downloads\output (1), watermark=C:\Users\hp\Downloads\Logos\ChatGPT Image Apr 16, 2026, 10_20_11 AM.png
+2026-05-15 02:59:30,427 - INFO - Starting render: output=C:\Users\hp\Downloads\fog land\Fog Land Chapter 23 - Scythe Scans\final
+2026-05-15 13:20:06,780 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-15 13:20:58,380 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-15 13:21:57,656 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-15 13:22:04,696 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-15 13:22:26,210 - WARNING - OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+2026-05-15 13:22:26,211 - WARNING - OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+2026-05-15 13:22:54,474 - INFO - Starting extraction: input=C:\Users\hp\Downloads\fog land\Fog Land Chapter 24 - Scythe Scans, clean=C:\Users\hp\Downloads\output, watermark=C:\Users\hp\Downloads\Logos\ChatGPT Image Apr 16, 2026, 10_20_11 AM.png
+2026-05-15 16:18:07,667 - INFO - Starting render: output=C:\Users\hp\Downloads\fog land\Fog Land Chapter 24 - Scythe Scans\final
+2026-05-15 16:27:10,547 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-15 16:27:32,178 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-15 16:27:44,803 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-15 16:28:08,452 - INFO - Starting extraction: input=C:\Users\hp\Downloads\fog land\Fog Land Chapter 25 - Scythe Scans, clean=C:\Users\hp\Downloads\output (1), watermark=C:\Users\hp\Downloads\Logos\ChatGPT Image Apr 16, 2026, 10_20_11 AM.png
+2026-05-15 19:19:04,265 - INFO - Starting render: output=C:\Users\hp\Downloads\fog land\Fog Land Chapter 25 - Scythe Scans\f
+2026-05-15 21:28:27,825 - WARNING - OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+2026-05-15 21:28:27,826 - WARNING - OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+2026-05-15 21:28:33,685 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-15 21:28:47,556 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-15 21:28:59,256 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-15 21:29:08,613 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-15 21:29:17,092 - WARNING - OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+2026-05-15 21:29:17,092 - WARNING - OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+2026-05-15 21:30:10,718 - WARNING - OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+2026-05-15 21:30:10,719 - WARNING - OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+2026-05-15 21:30:20,292 - INFO - Starting extraction: input=C:\Users\hp\Downloads\37_16f6c8, clean=C:\Users\hp\Downloads\output\ch37, watermark=C:\Users\hp\Downloads\Logos\output-onlinepngtools.png
+2026-05-16 00:56:16,506 - INFO - Starting render: output=C:\Users\hp\Downloads\37_16f6c8\final
+2026-05-16 01:30:44,149 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-16 01:30:54,054 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-16 01:31:00,411 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-16 01:32:18,779 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-16 01:32:47,406 - INFO - Starting extraction: input=C:\Users\hp\Downloads\38_7d057a, clean=C:\Users\hp\Downloads\output, watermark=C:\Users\hp\Downloads\Logos\output-onlinepngtools.png
+2026-05-16 04:22:02,291 - INFO - Starting render: output=C:\Users\hp\Downloads\38_7d057a\final
+2026-05-16 13:37:55,314 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-16 13:38:11,631 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-16 13:38:36,464 - INFO - Starting extraction: input=C:\Users\hp\Downloads\39_8ba3b7, clean=, watermark=
+2026-05-16 14:19:32,744 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-16 14:19:38,383 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-16 14:19:45,471 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-16 14:20:12,824 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-16 14:20:16,847 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-16 14:20:25,995 - INFO - Starting extraction: input=C:\Users\hp\Downloads\39_8ba3b7, clean=, watermark=
+2026-05-16 14:46:29,975 - INFO - Starting render: output=C:\Users\hp\Downloads\39_8ba3b7\final
+2026-05-16 22:56:34,719 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-16 22:56:53,127 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-16 22:56:57,511 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-16 22:57:09,734 - WARNING - OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+2026-05-16 22:57:09,734 - WARNING - OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+2026-05-16 22:57:20,981 - INFO - Starting extraction: input=C:\Users\hp\Downloads\fog land\Fog Land Chapter 26 - Scythe Scans, clean=C:\Users\hp\Downloads\fog land\Fog Land Chapter 26 - Scythe Scans\clean, watermark=C:\Users\hp\Downloads\Logos\output-onlinepngtools.png
+2026-05-17 01:04:22,453 - INFO - Starting render: output=C:\Users\hp\Downloads\fog land\Fog Land Chapter 26 - Scythe Scans\f
+2026-05-17 19:52:53,446 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-17 19:53:01,601 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-17 19:53:06,745 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-17 19:53:11,074 - INFO - Starting extraction: input=C:\Users\hp\Desktop\1, clean=C:\Users\hp\Desktop\2, watermark=
+2026-05-17 19:59:22,492 - ERROR - WebView2 initialization failed with exception:
+ Value does not fall within the expected range.
+   at Microsoft.Web.WebView2.Core.Raw.ICoreWebView2.NavigateToString(String htmlContent)
+   at Microsoft.Web.WebView2.Core.CoreWebView2.NavigateToString(String htmlContent)
+--- End of stack trace from previous location where exception was thrown ---
+   at System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw()
+   at Python.Runtime.PythonException.ThrowLastAsClrException()
+   at Python.Runtime.Dispatcher.TrueDispatch(Object[] args)
+   at Python.Runtime.Dispatcher.Dispatch(Object[] args)
+   at __System_EventHandler`1\[\[Microsoft_Web_WebView2_Core_CoreWebView2InitializationCompletedEventArgs\, Microsoft_Web_WebView2_Core\, Version=1_0_3856_49\, Culture=neutral\, PublicKeyToken=2a8ab48044d2601e\]\]Dispatcher.Invoke(Object , CoreWebView2InitializationCompletedEventArgs )
+   at Microsoft.Web.WebView2.WinForms.WebView2.<InitCoreWebView2Async>d__25.MoveNext()
+2026-05-17 20:00:42,503 - ERROR - WebView2 initialization failed with exception:
+ Value does not fall within the expected range.
+   at Microsoft.Web.WebView2.Core.Raw.ICoreWebView2.NavigateToString(String htmlContent)
+   at Microsoft.Web.WebView2.Core.CoreWebView2.NavigateToString(String htmlContent)
+--- End of stack trace from previous location where exception was thrown ---
+   at System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw()
+   at Python.Runtime.PythonException.ThrowLastAsClrException()
+   at Python.Runtime.Dispatcher.TrueDispatch(Object[] args)
+   at Python.Runtime.Dispatcher.Dispatch(Object[] args)
+   at __System_EventHandler`1\[\[Microsoft_Web_WebView2_Core_CoreWebView2InitializationCompletedEventArgs\, Microsoft_Web_WebView2_Core\, Version=1_0_3856_49\, Culture=neutral\, PublicKeyToken=2a8ab48044d2601e\]\]Dispatcher.Invoke(Object , CoreWebView2InitializationCompletedEventArgs )
+   at Microsoft.Web.WebView2.WinForms.WebView2.<InitCoreWebView2Async>d__25.MoveNext()
+2026-05-17 20:05:51,163 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-17 20:05:57,306 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-17 20:06:02,536 - INFO - Starting extraction: input=C:\Users\hp\Desktop\1, clean=, watermark=
+2026-05-17 20:19:05,948 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-17 20:19:09,419 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-17 20:19:12,561 - INFO - Starting extraction: input=C:\Users\hp\Desktop\1, clean=, watermark=
+2026-05-17 20:24:12,875 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-17 20:24:16,746 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-17 20:24:18,878 - INFO - Starting extraction: input=C:\Users\hp\Desktop\1, clean=, watermark=
+2026-05-17 20:37:21,692 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-17 20:37:24,485 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-17 20:37:26,345 - INFO - Starting extraction: input=C:\Users\hp\Desktop\1, clean=, watermark=
+2026-05-17 20:38:11,677 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-17 20:38:19,460 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-17 20:38:34,563 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-17 20:38:49,043 - WARNING - OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+2026-05-17 20:38:49,044 - WARNING - OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+2026-05-17 20:38:58,760 - INFO - Starting extraction: input=C:\Users\hp\Desktop\ScraperTool\library\Sandmancer of the Scorched Desert\Chapter 22, clean=C:\Users\hp\Downloads\output, watermark=C:\Users\hp\Downloads\Logos\output-onlinepngtools.png
+2026-05-17 21:22:14,598 - WARNING - OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+2026-05-17 21:22:14,599 - WARNING - OPEN_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.OPEN' instead.
+2026-05-17 21:22:18,309 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-17 21:22:41,256 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-17 21:22:46,389 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-17 21:22:56,345 - INFO - Starting extraction: input=C:\Users\hp\Desktop\ScraperTool\library\Sandmancer of the Scorched Desert\Chapter 22, clean=C:\Users\hp\Downloads\output, watermark=C:\Users\hp\Downloads\Logos\output-onlinepngtools.png

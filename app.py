@@ -9,6 +9,22 @@ import threading
 import json
 import webview
 import base64
+import logging
+import socket
+from PIL import Image, ImageDraw
+import pystray
+from pystray import MenuItem as item
+
+# ─── Logging Setup ───
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("ppcleaning.log", encoding='utf-8'),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
 
 # ─── Processing State ───
 class AppState:
@@ -16,6 +32,8 @@ class AppState:
         self.is_running = False
         self.logs = []
         self.window = None
+        self.tray_icon = None
+        self.is_quitting = False
 
     def add_log(self, msg):
         self.logs.append(msg)
@@ -25,6 +43,88 @@ class AppState:
         self.logs = []
 
 state = AppState()
+
+# ─── Tray Icon Logic ───
+def create_default_icon():
+    # Create a simple icon if none exists
+    width = 64
+    height = 64
+    color1 = (124, 58, 237) # Purple
+    image = Image.new('RGB', (width, height), color1)
+    dc = ImageDraw.Draw(image)
+    dc.text((20, 10), "P", fill=(255, 255, 255))
+    return image
+
+def on_tray_show(icon, item):
+    if state.window:
+        state.window.show()
+
+def on_tray_quit(icon, item):
+    state.is_quitting = True
+    icon.stop()
+    if state.window:
+        state.window.destroy()
+    os._exit(0)
+
+def setup_tray():
+    try:
+        icon_path = os.path.join(os.path.dirname(__file__), "icon.png")
+        if os.path.exists(icon_path):
+            image = Image.open(icon_path)
+        else:
+            image = create_default_icon()
+            
+        menu = (
+            item('Show Window', on_tray_show),
+            item('Quit', on_tray_quit)
+        )
+        state.tray_icon = pystray.Icon("ppcleaning", image, "PPCleaning", menu)
+        state.tray_icon.run()
+    except Exception as e:
+        logger.error(f"Tray Icon Error: {e}")
+
+def on_closing():
+    if state.is_quitting:
+        return True
+    if state.window:
+        state.window.hide()
+    return False # Prevent closing
+
+# ─── Single Instance Check ───
+SINGLE_INSTANCE_PORT = 51234
+
+def single_instance_checker():
+    """Ensures only one instance runs. If another starts, it triggers 'show' on the first."""
+    try:
+        # Try to bind to the port
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.bind(('127.0.0.1', SINGLE_INSTANCE_PORT))
+        sock.listen(5)
+        
+        def listen_for_show():
+            while True:
+                try:
+                    conn, addr = sock.accept()
+                    data = conn.recv(1024).decode('utf-8')
+                    if data == "SHOW":
+                        if state.window:
+                            state.window.show()
+                    conn.close()
+                except:
+                    break
+        
+        threading.Thread(target=listen_for_show, daemon=True).start()
+        return True
+    except socket.error:
+        # Port already in use, send "SHOW" to the existing instance
+        try:
+            client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client.connect(('127.0.0.1', SINGLE_INSTANCE_PORT))
+            client.sendall(b"SHOW")
+            client.close()
+        except:
+            pass
+        return False
 
 # ─── API for JS ↔ Python ───
 class Api:
@@ -50,7 +150,17 @@ class Api:
                 return "data:image/png;base64," + base64.b64encode(f.read()).decode('utf-8')
         except: return ""
 
-    def start_extraction(self, input_dir, clean_dir, target_lang, slice_height, smart_stitch=False):
+    def get_font_base64(self, rel_path):
+        try:
+            app_dir = os.path.dirname(os.path.abspath(__file__))
+            full_path = os.path.join(app_dir, rel_path)
+            with open(full_path, "rb") as f:
+                return base64.b64encode(f.read()).decode('utf-8')
+        except Exception as e:
+            logger.error(f"Failed to load font {rel_path}: {e}")
+            return ""
+
+    def start_extraction(self, input_dir, clean_dir, target_lang, slice_height, smart_stitch=False, watermark_path=""):
         try:
             if state.is_running: return json.dumps({"error": "العملية قيد التشغيل بالفعل."})
             if not input_dir or not os.path.isdir(input_dir): return json.dumps({"error": "مجلد الصور غير صالح."})
@@ -58,6 +168,8 @@ class Api:
             slice_h = int(slice_height) if slice_height else 5000
             state.reset()
             state.is_running = True
+            state.watermark_path = watermark_path
+            logger.info(f"Starting extraction: input={input_dir}, clean={clean_dir}, watermark={watermark_path}")
             
             def run():
                 try:
@@ -65,18 +177,21 @@ class Api:
                     from engine import extract_chapter
                     data = extract_chapter(input_dir, clean_dir, target_lang, slice_h, smart_stitch, callback=cb)
                     if data:
+                        data["watermark_path"] = watermark_path
                         state.project_data = data
                         state.add_log("__EXTRACTION_DONE__")
                     else:
                         state.add_log("❌ فشل الاستخراج.")
                 except Exception as e:
                     state.add_log(f"❌ خطأ فادح: {str(e)}")
+                    logger.exception("Extraction Error")
                 finally:
                     state.is_running = False
             
             threading.Thread(target=run, daemon=True).start()
             return json.dumps({"status": "started"})
         except Exception as e:
+            logger.exception("start_extraction API Error")
             return json.dumps({"error": f"Internal Error: {str(e)}"})
 
     def get_project_data(self):
@@ -92,6 +207,7 @@ class Api:
             data = json.loads(project_data_json)
             state.reset()
             state.is_running = True
+            logger.info(f"Starting render: output={output_dir}")
             
             def run():
                 try:
@@ -101,12 +217,14 @@ class Api:
                     state.add_log(f"__RENDER_DONE__::{final_path}")
                 except Exception as e:
                     state.add_log(f"❌ خطأ فادح: {str(e)}")
+                    logger.exception("Rendering Error")
                 finally:
                     state.is_running = False
             
             threading.Thread(target=run, daemon=True).start()
             return json.dumps({"status": "started"})
         except Exception as e:
+            logger.exception("render_project API Error")
             return json.dumps({"error": f"Internal Error: {str(e)}"})
 
     def poll_logs(self):
@@ -132,6 +250,8 @@ HTML = r'''<!DOCTYPE html>
 <title>PPCleaning — محرر الويبتون الذكي</title>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Zain:wght@300;400;700;900&display=swap" rel="stylesheet">
 <style>
+/* DYNAMIC_FONTS_CSS */
+
 :root {
   --bg: #030305; --panel: rgba(15, 15, 26, 0.7);
   --accent: #7c3aed; --accent-glow: rgba(124, 58, 237, 0.4);
@@ -214,6 +334,13 @@ body { background: var(--bg); color: var(--text); overflow: hidden; height: 100v
   overflow: hidden; 
   paint-order: stroke fill;
 }
+.logo-box-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
 .resize-handle { position: absolute; width: 24px; height: 24px; z-index: 20; display: flex; align-items: center; justify-content: center; }
 .resize-handle::after { content: ""; width: 10px; height: 10px; background: white; border-radius: 50%; border: 2px solid var(--accent); box-shadow: 0 0 5px rgba(0,0,0,0.5); }
 .handle-tl { left: -12px; top: -12px; cursor: nw-resize; }
@@ -261,8 +388,9 @@ body { background: var(--bg); color: var(--text); overflow: hidden; height: 100v
 .block-item.active .block-item-text { color: white; }
 
 /* Properties Panel */
-.prop-panel { background: rgba(0,0,0,0.25); border-radius: 10px; padding: 14px; display: none; }
-.prop-panel.active { display: block; }
+.prop-panel { background: rgba(0,0,0,0.25); border-radius: 10px; padding: 14px; display: none; flex-direction: column; gap: 4px; }
+.prop-panel.active { display: flex; }
+#textOnlyProps, #textStyleProps { display: flex; flex-direction: column; gap: 4px; }
 .prop-panel textarea { width: 100%; height: 90px; background: rgba(0,0,0,0.5); border: 1px solid var(--border); color: white; padding: 10px; border-radius: 8px; resize: vertical; outline: none; margin-bottom: 10px; font-family: 'Zain', 'Outfit', sans-serif; font-size: 14px; direction: rtl; transition: border-color 0.2s; }
 .prop-panel textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
 
@@ -306,7 +434,7 @@ body { background: var(--bg); color: var(--text); overflow: hidden; height: 100v
       <div class="input-group"><label>مجلد التنظيف (اختياري)</label><div class="input-wrapper"><input type="text" id="cleanDir" readonly placeholder="صور بدون نص..."><button class="browse-btn" onclick="browse('cleanDir')">فتح</button></div></div>
       <div class="input-group"><label>مجلد الإخراج النهائي</label><div class="input-wrapper"><input type="text" id="outputDir" placeholder="مجلد الحفظ النهائي"><button class="browse-btn" onclick="browse('outputDir')">فتح</button></div></div>
       <div class="input-group"><label>العلامة المائية (اختياري)</label><div class="input-wrapper"><input type="text" id="wmPath" readonly placeholder="صورة العلامة..."><button class="browse-btn" onclick="browse('wmPath', true)">فتح</button></div></div>
-      <div class="toggle-row"><label>الدمج الذكي (تحسين 5000px للتسريع)</label><input type="checkbox" id="smartStitch" checked></div>
+      <div class="toggle-row"><label>الدمج الذكي (تحسين 5000px للتسريع)</label><input type="checkbox" id="smartStitch"></div>
     </div>
     <div class="content">
       <div class="console-container">
@@ -358,16 +486,21 @@ body { background: var(--bg); color: var(--text); overflow: hidden; height: 100v
       <div class="section-label">فقاعات النص <span class="badge" id="blockCount">0</span></div>
       <div class="block-list" id="blockList"></div>
       
-      <button class="action-btn add" onclick="addBoxCenter()">+ إضافة مربع جديد</button>
+      <div style="display:flex; gap:6px;">
+        <button class="action-btn add" onclick="addBoxCenter()" style="flex:1">+ إضافة نص</button>
+        <button class="action-btn add" onclick="addLogoCenter()" style="flex:1">🖼️ إضافة شعار</button>
+      </div>
 
       <!-- Properties Panel -->
       <div class="prop-panel" id="propPanel">
-        <div class="section-label" style="margin-top:0;">تعديل الفقاعة المحددة</div>
-        <textarea id="propText" oninput="updateSelectedBox()" placeholder="اكتب النص المترجم هنا..."></textarea>
-        
-        <div class="toggle-row">
-          <span>حجم الخط (Size)</span>
-          <input type="number" id="propFontSize" style="width:60px; background:rgba(0,0,0,0.5); border:1px solid var(--border); color:white; border-radius:6px; text-align:center;" value="28" onchange="updateSelectedBox()">
+        <div class="section-label" style="margin-top:0;" id="propTitle">تعديل الفقاعة المحددة</div>
+        <div id="textOnlyProps">
+          <textarea id="propText" oninput="updateSelectedBox()" placeholder="اكتب النص المترجم هنا..."></textarea>
+          
+          <div class="toggle-row">
+            <span>حجم الخط (Size)</span>
+            <input type="number" id="propFontSize" style="width:60px; background:rgba(0,0,0,0.5); border:1px solid var(--border); color:white; border-radius:6px; text-align:center;" value="28" oninput="updateSelectedBox()">
+          </div>
         </div>
         
         <div class="toggle-row">
@@ -379,71 +512,75 @@ body { background: var(--bg); color: var(--text); overflow: hidden; height: 100v
           </div>
         </div>
 
-        <div class="toggle-row">
-          <span>المحاذاة (Align)</span>
-          <select id="propAlign" style="background:rgba(0,0,0,0.5); border:1px solid var(--border); color:white; border-radius:6px; padding:2px; width:120px;" onchange="updateSelectedBox()">
-            <option value="center">وسط (Center)</option>
-            <option value="right">يمين (Right)</option>
-            <option value="left">يسار (Left)</option>
-          </select>
+        <div class="toggle-row" id="opacityProp">
+          <span>الشفافية (Opacity)</span>
+          <div style="display:flex; gap:4px; align-items:center;">
+            <input type="range" id="propOpacity" min="0" max="1" step="0.05" value="1" style="width:80px" oninput="document.getElementById('propOpacityVal').innerText = Math.round(this.value*100) + '%'; updateSelectedBox()">
+            <span id="propOpacityVal" style="font-size:11px; color:var(--accent); min-width:30px;">100%</span>
+          </div>
         </div>
 
-        <div class="toggle-row">
-          <span>نوع الخط (Font)</span>
-          <select id="propFont" style="background:rgba(0,0,0,0.5); border:1px solid var(--border); color:white; border-radius:6px; padding:2px; width:120px;" onchange="updateSelectedBox()">
-            <option value="Zain-Bold.ttf">Zain (افتراضي)</option>
-            <option value="Sakkal Majalla">Sakkal Majalla</option>
-            <option value="Simplified Arabic">Simplified Arabic</option>
-            <option value="Times New Roman">Times New Roman</option>
-            <option value="impact.ttf">Impact (شائك/عريض)</option>
-            <option value="arial.ttf">Arial</option>
-            <option value="tahoma.ttf">Tahoma</option>
-          </select>
-        </div>
-        
-        <div class="toggle-row">
-          <span>تباعد الأسطر (Line H)</span>
-          <input type="number" id="propLineHeight" style="width:60px; background:rgba(0,0,0,0.5); border:1px solid var(--border); color:white; border-radius:6px; text-align:center;" step="0.1" value="1.2" onchange="updateSelectedBox()">
-        </div>
-        
-        <div class="color-row" style="justify-content: space-between; margin-bottom: 8px;">
-          <div style="display:flex; align-items:center; gap:6px;">
-            <input type="color" id="propColor" value="#000000" onchange="updateSelectedBox()">
-            <span>لون النص</span>
+        <div id="textStyleProps">
+          <div class="toggle-row">
+            <span>المحاذاة (Align)</span>
+            <select id="propAlign" style="background:rgba(0,0,0,0.5); border:1px solid var(--border); color:white; border-radius:6px; padding:2px; width:120px;" onchange="updateSelectedBox()">
+              <option value="center">وسط (Center)</option>
+              <option value="right">يمين (Right)</option>
+              <option value="left">يسار (Left)</option>
+            </select>
           </div>
-          <div style="display:flex; align-items:center; gap:6px;">
-            <input type="color" id="propOutline" value="#ffffff" onchange="updateSelectedBox()">
-            <span>الإطار</span>
+
+          <div class="toggle-row">
+            <span>نوع الخط (Font)</span>
+            <select id="propFont" style="background:rgba(0,0,0,0.5); border:1px solid var(--border); color:white; border-radius:6px; padding:2px; width:120px;" onchange="updateSelectedBox()">
+              <!-- Dynamic font options populated by JS -->
+            </select>
           </div>
-        </div>
-        
-        <div class="toggle-row">
-          <span>سمك الإطار (Stroke)</span>
-          <div style="display:flex; gap:6px; align-items:center;">
-            <input type="checkbox" id="propNoOutline" onchange="updateSelectedBox()" title="بدون إطار">
-            <span style="font-size:10px">بدون</span>
-            <input type="number" id="propOutlineWidth" style="width:50px; background:rgba(0,0,0,0.5); border:1px solid var(--border); color:white; border-radius:6px; text-align:center;" value="4" onchange="updateSelectedBox()">
+          
+          <div class="toggle-row">
+            <span>تباعد الأسطر (Line H)</span>
+            <input type="number" id="propLineHeight" style="width:60px; background:rgba(0,0,0,0.5); border:1px solid var(--border); color:white; border-radius:6px; text-align:center;" step="0.1" value="1.2" oninput="updateSelectedBox()">
           </div>
-        </div>
-        
-        <div class="toggle-row">
-          <span style="color: #3b82f6; font-weight: 600;">تدرج لوني للنص</span>
-          <label class="switch"><input type="checkbox" id="propGrad" onchange="updateSelectedBox()"><span class="slider"></span></label>
-        </div>
-        <div class="color-row" id="colorRow" style="display:none; flex-direction:column; align-items:flex-start; margin-bottom:12px;">
-          <div style="display:flex; justify-content: space-between; width:100%;">
-            <span>ألوان التدرج:</span>
-            <div style="display:flex; gap:4px;">
-              <input type="color" id="gradC1" value="#8b5cf6" onchange="updateSelectedBox()">
-              <input type="color" id="gradC2" value="#3b82f6" onchange="updateSelectedBox()">
+          
+          <div class="color-row" style="justify-content: space-between; margin-bottom: 8px;">
+            <div style="display:flex; align-items:center; gap:6px;">
+              <input type="color" id="propColor" value="#000000" oninput="updateSelectedBox()">
+              <span>لون النص</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:6px;">
+              <input type="color" id="propOutline" value="#ffffff" oninput="updateSelectedBox()">
+              <span>الإطار</span>
             </div>
           </div>
-          <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
-             <span style="font-size:11px; color:var(--text-dim);">مقياس التدرج (النسبة)</span>
-             <div style="display:flex; gap:4px; align-items:center;">
-               <input type="range" id="gradScale" min="10" max="200" value="100" style="width:80px" oninput="document.getElementById('gradScaleVal').innerText = this.value + '%'; updateSelectedBox()">
-               <span id="gradScaleVal" style="font-size:11px; color:var(--accent); min-width:30px;">100%</span>
-             </div>
+          
+          <div class="toggle-row">
+            <span>سمك الإطار (Stroke)</span>
+            <div style="display:flex; gap:6px; align-items:center;">
+              <input type="checkbox" id="propNoOutline" oninput="updateSelectedBox()" title="بدون إطار">
+              <span style="font-size:10px">بدون</span>
+              <input type="number" id="propOutlineWidth" style="width:50px; background:rgba(0,0,0,0.5); border:1px solid var(--border); color:white; border-radius:6px; text-align:center;" value="4" oninput="updateSelectedBox()">
+            </div>
+          </div>
+          
+          <div class="toggle-row">
+            <span style="color: #3b82f6; font-weight: 600;">تدرج لوني للنص</span>
+            <label class="switch"><input type="checkbox" id="propGrad" oninput="updateSelectedBox()"><span class="slider"></span></label>
+          </div>
+          <div class="color-row" id="colorRow" style="display:none; flex-direction:column; align-items:flex-start; margin-bottom:12px;">
+            <div style="display:flex; justify-content: space-between; width:100%;">
+              <span>ألوان التدرج:</span>
+              <div style="display:flex; gap:4px;">
+                <input type="color" id="gradC1" value="#8b5cf6" oninput="updateSelectedBox()">
+                <input type="color" id="gradC2" value="#3b82f6" oninput="updateSelectedBox()">
+              </div>
+            </div>
+            <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+               <span style="font-size:11px; color:var(--text-dim);">مقياس التدرج (النسبة)</span>
+               <div style="display:flex; gap:4px; align-items:center;">
+                 <input type="range" id="gradScale" min="10" max="200" value="100" style="width:80px" oninput="document.getElementById('gradScaleVal').innerText = this.value + '%'; updateSelectedBox()">
+                 <span id="gradScaleVal" style="font-size:11px; color:var(--accent); min-width:30px;">100%</span>
+               </div>
+            </div>
           </div>
         </div>
         
@@ -466,9 +603,69 @@ let currentPageIdx = 0;
 let selectedBoxId = null;
 let currentZoom = 1.0;
 
+const ALL_FONTS = /* DYNAMIC_FONTS_JSON */;
+
+// Find Hayah or default to the first scanned font
+let defaultFont = 'My fonts/Hayah.otf';
+if (ALL_FONTS.length > 0) {
+  const hasHayah = ALL_FONTS.some(f => f.rel_path === defaultFont);
+  if (!hasHayah) {
+    defaultFont = ALL_FONTS[0].rel_path;
+  }
+}
+
 let globalStyle = {
-  font_size: 28, rotation: 0, color: '#000000', outline_color: '#ffffff', outline_width: 4, line_height: 1.2, font: 'Zain-Bold.ttf', align: 'center', gradient_scale: 100
+  font_size: 28, rotation: 0, color: '#000000', outline_color: '#ffffff', outline_width: 4, line_height: 1.2, font: defaultFont, align: 'center', gradient_scale: 100, is_gradient: false, opacity: 1.0
 };
+
+// Async font loading to bypass WebView2 string limits by injecting @font-face rules dynamically
+async function loadAllFonts() {
+  const styleEl = document.createElement('style');
+  styleEl.id = 'dynamic-fonts-style';
+  document.head.appendChild(styleEl);
+  
+  let cssContent = "";
+  for (const f of ALL_FONTS) {
+    try {
+      const b64 = await pywebview.api.get_font_base64(f.rel_path);
+      if (b64) {
+        const ext = f.rel_path.toLowerCase().endsWith('.ttf') ? 'ttf' : 'otf';
+        cssContent += `@font-face {
+  font-family: '${f.css_name}';
+  src: url('data:font/${ext};base64,${b64}');
+}\n`;
+      }
+    } catch (e) {
+      console.error("Failed to load font: " + f.display_name, e);
+    }
+  }
+  styleEl.textContent = cssContent;
+  
+  // If editor is already active, force re-rendering of visible text boxes to apply the new fonts
+  if (typeof projectData !== 'undefined' && projectData && typeof renderBoxes === 'function') {
+    renderBoxes();
+  }
+}
+
+// Wait until pywebview has fully loaded and injected its API
+window.addEventListener('pywebviewready', () => {
+  loadAllFonts();
+});
+
+function initFontSelect() {
+  const select = document.getElementById('propFont');
+  if (!select) return;
+  select.innerHTML = "";
+  ALL_FONTS.forEach(f => {
+    const opt = document.createElement('option');
+    opt.value = f.rel_path;
+    opt.textContent = f.display_name;
+    select.appendChild(opt);
+  });
+}
+initFontSelect();
+
+let logoBase64 = null;
 
 // Zoom Controls
 function applyZoom() {
@@ -556,6 +753,7 @@ async function browse(id, isFile = false) {
 async function startExtraction() {
   const inDir = document.getElementById('inputDir').value;
   const clDir = document.getElementById('cleanDir').value;
+  const wmPath = document.getElementById('wmPath').value;
   const smart = document.getElementById('smartStitch').checked;
   if(!inDir) { addLog("❌ يرجى اختيار مجلد الصور أولاً!"); return; }
 
@@ -563,7 +761,7 @@ async function startExtraction() {
   document.getElementById('console').innerHTML = "";
   addLog("🚀 بدء عملية استخراج النصوص والترجمة...");
 
-  const response = await pywebview.api.start_extraction(inDir, clDir, "Arabic", 5000, smart);
+  const response = await pywebview.api.start_extraction(inDir, clDir, "Arabic", 5000, smart, wmPath);
   const result = JSON.parse(response);
   if(result.error) { addLog("❌ " + result.error); document.getElementById('startBtn').disabled = false; return; }
 
@@ -595,6 +793,10 @@ async function loadProjectData() {
   
   document.getElementById('settingsView').style.display = 'none';
   document.getElementById('editorView').style.display = 'flex';
+  
+  if (projectData.watermark_path) {
+    logoBase64 = await pywebview.api.get_image_base64(projectData.watermark_path);
+  }
   
   // Render thumbnails
   const list = document.getElementById('pageList');
@@ -679,6 +881,66 @@ async function loadPage(idx) {
 
 let _isResizing = false;
 
+function applyBoxStyles(b, boxElem) {
+  if (!boxElem) return;
+  
+  boxElem.style.left = b.x + 'px';
+  boxElem.style.top = b.y + 'px';
+  boxElem.style.width = b.w + 'px';
+  boxElem.style.height = b.h + 'px';
+  boxElem.style.transform = `rotate(${b.rotation}deg)`;
+  boxElem.style.opacity = b.opacity !== undefined ? b.opacity : 1.0;
+
+  if (b.type === 'logo') {
+    const img = boxElem.querySelector('.logo-box-img');
+    if (img && logoBase64) img.src = logoBase64;
+    return;
+  }
+
+  const text = boxElem.querySelector('.bubble-text');
+  if (!text) return;
+
+  boxElem.classList.toggle('gradient', !!b.is_gradient);
+
+  text.textContent = b.text;
+  const fontCfg = ALL_FONTS.find(f => {
+    if (!b.font) return false;
+    const bName = b.font.split('/').pop().split('\\').pop().toLowerCase();
+    const fName = f.rel_path.split('/').pop().split('\\').pop().toLowerCase();
+    return f.rel_path === b.font || bName === fName;
+  });
+  if (fontCfg) {
+    text.style.fontFamily = `'${fontCfg.css_name}'`;
+  } else {
+    const fallbackCfg = ALL_FONTS.find(f => f.rel_path === defaultFont);
+    text.style.fontFamily = fallbackCfg ? `'${fallbackCfg.css_name}'` : "sans-serif";
+  }
+  text.style.fontSize = b.font_size + 'px';
+  text.style.lineHeight = b.line_height;
+  text.style.textAlign = b.align || 'center';
+
+  if(b.is_gradient && b.gradient_colors && b.gradient_colors.length === 2) {
+    const scale = b.gradient_scale !== undefined ? b.gradient_scale : 100;
+    text.style.backgroundImage = `linear-gradient(to bottom, ${b.gradient_colors[0]} 0%, ${b.gradient_colors[1]} ${scale}%)`;
+    text.style.webkitBackgroundClip = 'text';
+    text.style.webkitTextFillColor = 'transparent';
+    text.style.color = 'transparent';
+  } else {
+    text.style.backgroundImage = 'none';
+    text.style.webkitBackgroundClip = 'unset';
+    text.style.webkitTextFillColor = b.color;
+    text.style.color = b.color;
+  }
+
+  if (b.outline_width > 0) {
+    text.style.webkitTextStrokeWidth = b.outline_width + 'px';
+    text.style.webkitTextStrokeColor = b.outline_color;
+  } else {
+    text.style.webkitTextStrokeWidth = '0px';
+    text.style.webkitTextStrokeColor = 'transparent';
+  }
+}
+
 function renderBoxes() {
   const layer = document.getElementById('boxesLayer');
   layer.innerHTML = "";
@@ -691,51 +953,40 @@ function renderBoxes() {
   }
   
   page.blocks.forEach((b, idx) => {
-    // defaults if missing - use globalStyle
+    // defaults if missing
     if(b.font_size === undefined) {
       b.font_size = globalStyle.font_size;
       b.rotation = globalStyle.rotation;
-      b.color = b.is_dark ? '#ffffff' : globalStyle.color; // preserve ai dark mode guess if any
+      b.color = b.is_dark ? '#ffffff' : globalStyle.color; 
       b.outline_color = b.is_dark ? '#000000' : globalStyle.outline_color;
       b.outline_width = globalStyle.outline_width;
       b.line_height = globalStyle.line_height;
       b.font = globalStyle.font;
       b.align = globalStyle.align;
       b.gradient_scale = globalStyle.gradient_scale;
+      b.is_gradient = globalStyle.is_gradient;
+      b.is_custom = false;
     }
 
-    // Canvas Box
     const box = document.createElement('div');
     box.className = 'bubble-box';
+    box.id = `box_el_${b.id}`;
     if(b.id === selectedBoxId) box.classList.add('selected');
-    if(b.is_gradient) box.classList.add('gradient');
     
-    box.style.left = b.x + 'px';
-    box.style.top = b.y + 'px';
-    box.style.width = b.w + 'px';
-    box.style.height = b.h + 'px';
-    box.style.transform = `rotate(${b.rotation}deg)`;
-    box.dataset.id = b.id;
-    
-    const text = document.createElement('div');
-    text.className = 'bubble-text';
-    text.textContent = b.text;
-    text.style.fontFamily = (b.font === 'impact.ttf') ? 'Impact, sans-serif' : (b.font === 'arial.ttf' ? 'Arial, sans-serif' : (b.font === 'tahoma.ttf' ? 'Tahoma, sans-serif' : (b.font.endsWith('.ttf') ? "'Zain', 'Outfit', sans-serif" : b.font + ", sans-serif")));
-    text.style.fontSize = b.font_size + 'px';
-    text.style.color = b.color;
-    text.style.lineHeight = b.line_height;
-    text.style.textAlign = b.align || 'center';
-    text.style.webkitTextStroke = b.outline_width > 0 ? `${b.outline_width}px ${b.outline_color}` : 'none';
-    
-    if(b.is_gradient && b.gradient_colors && b.gradient_colors.length === 2) {
-      const scale = b.gradient_scale !== undefined ? b.gradient_scale : 100;
-      text.style.background = `linear-gradient(to bottom, ${b.gradient_colors[0]} 0%, ${b.gradient_colors[1]} ${scale}%)`;
-      text.style.webkitBackgroundClip = 'text';
-      text.style.webkitTextFillColor = 'transparent';
-      text.style.color = 'transparent'; // fallback
+    if (b.type === 'logo') {
+      const img = document.createElement('img');
+      img.className = 'logo-box-img';
+      box.appendChild(img);
+    } else {
+      const text = document.createElement('div');
+      text.className = 'bubble-text';
+      box.appendChild(text);
     }
-
-    box.appendChild(text);
+    
+    // Use the helper to apply all styles
+    applyBoxStyles(b, box);
+    
+    box.dataset.id = b.id;
     
     // Resize handles
     ['tl', 'tr', 'bl', 'br'].forEach(pos => {
@@ -762,11 +1013,11 @@ function renderBoxes() {
     if (list) {
       const item = document.createElement('div');
       item.className = 'block-item';
+      item.id = `list_item_${b.id}`;
       if(b.id === selectedBoxId) item.classList.add('active');
       item.dataset.id = b.id;
       item.onclick = () => {
         selectBox(b);
-        // Scroll to box in editor
         document.getElementById('editorMain').scrollTo({
           top: (b.y * currentZoom) - 100,
           left: (b.x * currentZoom) - 100,
@@ -780,7 +1031,7 @@ function renderBoxes() {
       
       const lbl = document.createElement('div');
       lbl.className = 'block-item-text';
-      lbl.textContent = b.text || "مربع فارغ";
+      lbl.textContent = b.type === 'logo' ? "🖼️ شعار" : (b.text || "مربع فارغ");
       
       item.appendChild(num);
       item.appendChild(lbl);
@@ -791,36 +1042,67 @@ function renderBoxes() {
 
 function selectBox(b) {
   selectedBoxId = b.id;
+  
+  // "Remember Changes" Logic: If this box hasn't been customized, 
+  // inherit the current global style (last used settings)
+  if (!b.is_custom) {
+    b.font_size = globalStyle.font_size;
+    b.rotation = globalStyle.rotation;
+    b.color = globalStyle.color; 
+    b.outline_color = globalStyle.outline_color;
+    b.outline_width = globalStyle.outline_width;
+    b.line_height = globalStyle.line_height;
+    b.font = globalStyle.font;
+    b.align = globalStyle.align;
+    b.is_gradient = globalStyle.is_gradient;
+    b.gradient_scale = globalStyle.gradient_scale;
+  }
+
   document.querySelectorAll('.bubble-box').forEach(el => {
     el.classList.toggle('selected', el.dataset.id === b.id);
   });
   document.querySelectorAll('.block-item').forEach(el => {
     el.classList.toggle('active', el.dataset.id === b.id);
   });
+  
+  // Visually apply styles to the box (Inherited or Custom)
+  applyBoxStyles(b, document.getElementById(`box_el_${b.id}`));
+  
+  const isLogo = b.type === 'logo';
+  document.getElementById('propTitle').innerText = isLogo ? "تعديل الشعار المحدد" : "تعديل الفقاعة المحددة";
+  document.getElementById('textOnlyProps').style.display = isLogo ? 'none' : 'block';
+  document.getElementById('textStyleProps').style.display = isLogo ? 'none' : 'block';
+  
   const panel = document.getElementById('propPanel');
   panel.classList.add('active');
-  document.getElementById('propText').value = b.text;
-  document.getElementById('propFontSize').value = b.font_size;
+  
+  if (!isLogo) {
+    document.getElementById('propText').value = b.text;
+    document.getElementById('propFontSize').value = b.font_size;
+    document.getElementById('propLineHeight').value = b.line_height;
+    document.getElementById('propColor').value = b.color;
+    document.getElementById('propOutline').value = b.outline_color;
+    document.getElementById('propOutlineWidth').value = b.outline_width;
+    document.getElementById('propOutlineWidth').disabled = (b.outline_width === 0);
+    document.getElementById('propNoOutline').checked = (b.outline_width === 0);
+    document.getElementById('propFont').value = b.font || globalStyle.font;
+    document.getElementById('propAlign').value = b.align || 'center';
+    document.getElementById('propGrad').checked = b.is_gradient;
+    document.getElementById('colorRow').style.display = b.is_gradient ? 'flex' : 'none';
+    if(b.gradient_colors && b.gradient_colors.length === 2) {
+      document.getElementById('gradC1').value = b.gradient_colors[0];
+      document.getElementById('gradC2').value = b.gradient_colors[1];
+    }
+    const scale = b.gradient_scale !== undefined ? b.gradient_scale : 100;
+    document.getElementById('gradScale').value = scale;
+    document.getElementById('gradScaleVal').innerText = scale + '%';
+  }
   document.getElementById('propRotation').value = b.rotation;
   document.getElementById('propRotInput').value = b.rotation;
-  document.getElementById('propLineHeight').value = b.line_height;
-  document.getElementById('propColor').value = b.color;
-  document.getElementById('propOutline').value = b.outline_color;
-  document.getElementById('propOutlineWidth').value = b.outline_width;
-  document.getElementById('propOutlineWidth').disabled = (b.outline_width === 0);
-  document.getElementById('propNoOutline').checked = (b.outline_width === 0);
-  document.getElementById('propFont').value = b.font || 'Zain-Bold.ttf';
-  document.getElementById('propAlign').value = b.align || 'center';
-
-  document.getElementById('propGrad').checked = b.is_gradient;
-  document.getElementById('colorRow').style.display = b.is_gradient ? 'flex' : 'none';
-  if(b.gradient_colors && b.gradient_colors.length === 2) {
-    document.getElementById('gradC1').value = b.gradient_colors[0];
-    document.getElementById('gradC2').value = b.gradient_colors[1];
-  }
-  const scale = b.gradient_scale !== undefined ? b.gradient_scale : 100;
-  document.getElementById('gradScale').value = scale;
-  document.getElementById('gradScaleVal').innerText = scale + '%';
+  
+  const opacity = b.opacity !== undefined ? b.opacity : 1.0;
+  document.getElementById('propOpacity').value = opacity;
+  document.getElementById('propOpacityVal').innerText = Math.round(opacity * 100) + '%';
 }
 
 function updateSelectedBox() {
@@ -828,35 +1110,112 @@ function updateSelectedBox() {
   const page = projectData.pages[currentPageIdx];
   const b = page.blocks.find(x => x.id === selectedBoxId);
   if(!b) return;
-  b.text = document.getElementById('propText').value;
-  b.font_size = parseFloat(document.getElementById('propFontSize').value) || 28;
+  
+  b.is_custom = true;
+  
+  if (b.type !== 'logo') {
+    b.text = document.getElementById('propText').value;
+    b.font_size = parseFloat(document.getElementById('propFontSize').value) || 28;
+    b.line_height = parseFloat(document.getElementById('propLineHeight').value) || 1.2;
+    b.color = document.getElementById('propColor').value;
+    b.outline_color = document.getElementById('propOutline').value;
+    
+    let noOutline = document.getElementById('propNoOutline').checked;
+    b.outline_width = noOutline ? 0 : (parseFloat(document.getElementById('propOutlineWidth').value) || 4);
+    document.getElementById('propOutlineWidth').disabled = noOutline;
+    
+    b.font = document.getElementById('propFont').value;
+    b.align = document.getElementById('propAlign').value;
+
+    b.is_gradient = document.getElementById('propGrad').checked;
+    document.getElementById('colorRow').style.display = b.is_gradient ? 'flex' : 'none';
+    
+    if(b.is_gradient) {
+      document.getElementById('gradC1').value = b.color;
+    }
+    
+    b.gradient_colors = [document.getElementById('gradC1').value, document.getElementById('gradC2').value];
+    b.gradient_scale = parseFloat(document.getElementById('gradScale').value) || 100;
+  }
+
   b.rotation = parseFloat(document.getElementById('propRotation').value) || 0;
   document.getElementById('propRotInput').value = b.rotation;
-  b.line_height = parseFloat(document.getElementById('propLineHeight').value) || 1.2;
-  b.color = document.getElementById('propColor').value;
-  b.outline_color = document.getElementById('propOutline').value;
+  b.opacity = parseFloat(document.getElementById('propOpacity').value) || 1.0;
   
-  let noOutline = document.getElementById('propNoOutline').checked;
-  b.outline_width = noOutline ? 0 : (parseFloat(document.getElementById('propOutlineWidth').value) || 4);
-  document.getElementById('propOutlineWidth').disabled = noOutline;
+  const boxEl = document.getElementById(`box_el_${b.id}`);
+  applyBoxStyles(b, boxEl);
   
-  b.font = document.getElementById('propFont').value;
-  b.align = document.getElementById('propAlign').value;
+  const listItem = document.getElementById(`list_item_${b.id}`);
+  if(listItem) {
+    const lbl = listItem.querySelector('.block-item-text');
+    if(lbl) lbl.textContent = b.type === 'logo' ? "🖼️ شعار" : (b.text || "مربع فارغ");
+  }
+  
+  if (b.type !== 'logo') {
+    globalStyle = {
+      font_size: b.font_size, rotation: b.rotation, color: b.color, 
+      outline_color: b.outline_color, outline_width: b.outline_width, 
+      line_height: b.line_height, font: b.font, align: b.align,
+      gradient_scale: b.gradient_scale, is_gradient: b.is_gradient, opacity: b.opacity
+    };
+  } else {
+    globalStyle.rotation = b.rotation;
+    globalStyle.opacity = b.opacity;
+  }
+}
 
-  b.is_gradient = document.getElementById('propGrad').checked;
-  document.getElementById('colorRow').style.display = b.is_gradient ? 'flex' : 'none';
-  b.gradient_colors = [document.getElementById('gradC1').value, document.getElementById('gradC2').value];
-  b.gradient_scale = parseFloat(document.getElementById('gradScale').value) || 100;
+function addLogoCenter() {
+  const wmPath = document.getElementById('wmPath').value;
+  if (!wmPath && !projectData.watermark_path) {
+    alert("يرجى اختيار مسار الشعار (العلامة المائية) في الإعدادات أولاً.");
+    return;
+  }
   
-  // Save as global style for next boxes
-  globalStyle = {
-    font_size: b.font_size, rotation: b.rotation, color: b.color, 
-    outline_color: b.outline_color, outline_width: b.outline_width, 
-    line_height: b.line_height, font: b.font, align: b.align,
-    gradient_scale: b.gradient_scale
+  // Update watermark path if it was changed in settings but not reflected in projectData
+  if (wmPath && wmPath !== projectData.watermark_path) {
+    projectData.watermark_path = wmPath;
+    logoBase64 = null; // Force reload
+  }
+
+  (async () => {
+    if (!logoBase64 && projectData.watermark_path) {
+      logoBase64 = await pywebview.api.get_image_base64(projectData.watermark_path);
+    }
+    
+    if (!logoBase64) {
+      alert("فشل تحميل صورة الشعار. تأكد من صحة المسار.");
+      return;
+    }
+
+    const page = projectData.pages[currentPageIdx];
+  const wrapper = document.getElementById('canvasWrapper');
+  const main = document.getElementById('editorMain');
+  
+  const imgRect = wrapper.getBoundingClientRect();
+  const mainRect = main.getBoundingClientRect();
+  
+  const viewportCenterX = mainRect.left + mainRect.width / 2;
+  const viewportCenterY = mainRect.top + mainRect.height / 2;
+  
+  let targetX = (viewportCenterX - imgRect.left) / currentZoom;
+  let targetY = (viewportCenterY - imgRect.top) / currentZoom;
+  
+  if (targetY < 0) targetY = 200;
+  if (targetX < 0) targetX = 200;
+
+  const newBox = {
+    id: "logo_" + Date.now(),
+    type: "logo",
+    x: targetX - 75, y: targetY - 75,
+    w: 150, h: 150,
+    cx: targetX, cy: targetY,
+    rotation: globalStyle.rotation,
+    opacity: globalStyle.opacity !== undefined ? globalStyle.opacity : 1.0
   };
-  
+  page.blocks.push(newBox);
   renderBoxes();
+  selectBox(newBox);
+  })();
 }
 
 function addBoxCenter() {
@@ -1017,9 +1376,54 @@ function cancelEditor() {
 
 def main():
     api = Api()
+    
+    # Resolve absolute path for font loading
+    app_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    def get_font_b64(rel_path):
+        try:
+            full_path = os.path.join(app_dir, rel_path)
+            with open(full_path, "rb") as f:
+                return base64.b64encode(f.read()).decode('utf-8')
+        except Exception as e:
+            logger.error(f"Failed to load font {rel_path}: {e}")
+            return ""
+
+    # Dynamic font scanning
+    found_fonts = []
+    for root, dirs, files in os.walk(app_dir):
+        # Ignore hidden/unwanted directories
+        dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ('__pycache__', 'chrome_profile', 'scratch')]
+        for file in files:
+            if file.lower().endswith(('.ttf', '.otf')):
+                full_path = os.path.join(root, file)
+                rel_path = os.path.relpath(full_path, app_dir)
+                rel_path = rel_path.replace('\\', '/')
+                found_fonts.append(rel_path)
+    
+    # Sort fonts by filename naturally
+    found_fonts.sort(key=lambda s: os.path.basename(s).lower())
+    
+    fonts_metadata = []
+    for rel_path in found_fonts:
+        basename = os.path.basename(rel_path)
+        display_name, _ = os.path.splitext(basename)
+        display_name = display_name.replace('-', ' ').replace('_', ' ')
+        css_name = rel_path.replace('/', '_').replace('\\', '_').replace('.', '_').replace(' ', '_').replace('-', '_')
+        
+        fonts_metadata.append({
+            'rel_path': rel_path,
+            'display_name': display_name,
+            'css_name': css_name
+        })
+
+    final_html = HTML
+    final_html = final_html.replace("/* DYNAMIC_FONTS_CSS */", "") # Dynamic loading handled by CSS Font Loading API in JS
+    final_html = final_html.replace("/* DYNAMIC_FONTS_JSON */", json.dumps(fonts_metadata, ensure_ascii=False))
+
     window = webview.create_window(
         'PPCleaning — Webtoon Pro',
-        html=HTML,
+        html=final_html,
         js_api=api,
         width=940,
         height=760,
@@ -1027,7 +1431,14 @@ def main():
         background_color='#030305',
     )
     state.window = window
+    window.events.closing += on_closing
+    
+    # Start tray in a separate thread
+    threading.Thread(target=setup_tray, daemon=True).start()
+    
     webview.start(debug=False, private_mode=False)
 
 if __name__ == '__main__':
+    if not single_instance_checker():
+        sys.exit(0)
     main()

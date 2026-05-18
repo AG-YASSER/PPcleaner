@@ -21,9 +21,14 @@ import win32clipboard
 import io
 import numpy as np
 import cv2
-from arabic_reshaper import ArabicReshaper, reshape
-from bidi.algorithm import get_display
-from PIL import ImageFont, ImageDraw
+try:
+    from arabic_reshaper import reshape
+    from bidi.algorithm import get_display
+except ImportError:
+    reshape = None
+    get_display = None
+from PIL import ImageFont, ImageDraw, features
+HAS_RAQM = features.check("raqm")
 
 def load_image_rgb(path_or_img):
     if isinstance(path_or_img, (str, Path)):
@@ -39,11 +44,9 @@ def load_image_rgb(path_or_img):
     return img.convert('RGB')
 
 def get_arabic_text(text):
-    from arabic_reshaper import ArabicReshaper
-    reshaper = ArabicReshaper(configuration={'use_unshaped_instead_of_isolated': True})
-    reshaped_text = reshaper.reshape(text)
-    bidi_text = get_display(reshaped_text)
-    return bidi_text
+    from arabic_reshaper import reshape
+    from bidi.algorithm import get_display
+    return get_display(reshape(text))
 
 def refine_bubble_center(clean_img_pil, cx_global, cy_global, gemini_box=None):
     """
@@ -180,41 +183,7 @@ def send_image_to_clipboard(image_path):
     win32clipboard.SetClipboardData(win32clipboard.CF_DIB, data)
     win32clipboard.CloseClipboard()
 
-def apply_watermark(base_image, watermark_img, wm_height=40, count=8):
-    """Place up to `count` watermarks (max 8) spread across the image with random jitter."""
-    import math
-    count = min(count, 8)
-    wm_height = max(5, int(wm_height))
-    aspect = watermark_img.width / max(1, watermark_img.height)
-    wm_w = max(1, int(wm_height * aspect))
-    wm_resized = watermark_img.resize((wm_w, wm_height), Image.Resampling.LANCZOS)
-
-    watermarked = base_image.convert("RGBA")
-    overlay = Image.new("RGBA", watermarked.size, (255, 255, 255, 0))
-    img_w, img_h = base_image.width, base_image.height
-
-    # Divide image into a grid and place one watermark per cell with jitter
-    cols = max(1, round(math.sqrt(count * (img_w / max(1, img_h)))))
-    rows = max(1, math.ceil(count / cols))
-    cell_w = img_w / cols
-    cell_h = img_h / rows
-
-    placed = 0
-    for r in range(rows):
-        for c in range(cols):
-            if placed >= count:
-                break
-            cx = int(c * cell_w + cell_w / 2)
-            cy = int(r * cell_h + cell_h / 2)
-            # Random jitter within 40% of cell size
-            jx = random.randint(int(-cell_w * 0.4), int(cell_w * 0.4)) if cell_w > wm_w else 0
-            jy = random.randint(int(-cell_h * 0.4), int(cell_h * 0.4)) if cell_h > wm_height else 0
-            x = max(0, min(cx + jx - wm_w // 2, img_w - wm_w))
-            y = max(0, min(cy + jy - wm_height // 2, img_h - wm_height))
-            overlay.paste(wm_resized, (x, y), mask=wm_resized)
-            placed += 1
-
-    return Image.alpha_composite(watermarked, overlay).convert("RGB")
+# apply_watermark removed in favor of manual logo placement
 
 # detect_text_blocks removed (using Gemini now)
 
@@ -292,14 +261,15 @@ def typeset_arabic(img, text, font_path, block):
     gradient_scale = float(block.get('gradient_scale', 100))
     align = block.get('align', 'center')
     
-    custom_font = block.get('font', 'Zain-Bold.ttf')
-    if custom_font != 'Zain-Bold.ttf':
-        font_path = custom_font # Pillow automatically searches system fonts like arial.ttf
+    custom_font = block.get('font', 'My fonts/Hayah.otf')
+    # Resolve relative font path to absolute based on script directory
+    if custom_font and not os.path.isabs(custom_font):
+        font_path = os.path.join(os.path.dirname(__file__), custom_font)
+    else:
+        font_path = custom_font
         
     try: font = ImageFont.truetype(font_path, font_size)
     except: font = ImageFont.load_default()
-    
-    reshaper = ArabicReshaper(configuration={'use_unshaped_instead_of_isolated': True})
     
     # Text wrapping matching HTML pre-wrap
     lines = []
@@ -312,8 +282,13 @@ def typeset_arabic(img, text, font_path, block):
         curr_line = ""
         for word in words:
             test_line = (curr_line + " " + word).strip()
-            reshaped_test = get_display(reshaper.reshape(test_line))
-            tw = font.getlength(reshaped_test)
+            if HAS_RAQM:
+                tw = font.getlength(test_line, direction='rtl')
+            elif get_display and reshape:
+                tw = font.getlength(get_display(reshape(test_line)))
+            else:
+                tw = font.getlength(test_line)
+                
             if tw <= w * 0.95 or not curr_line: # 5% padding
                 curr_line = test_line
             else:
@@ -328,7 +303,13 @@ def typeset_arabic(img, text, font_path, block):
     total_h = len(lines) * line_h
     
     # Calculate dimensions for text layer
-    max_line_w = max(font.getlength(get_display(reshaper.reshape(l))) if l else 0 for l in lines)
+    def get_line_w(l):
+        if not l: return 0
+        if HAS_RAQM: return font.getlength(l, direction='rtl')
+        if get_display and reshape: return font.getlength(get_display(reshape(l)))
+        return font.getlength(l)
+
+    max_line_w = max(get_line_w(l) for l in lines)
     text_img_w = int(max(w, max_line_w) + outline_width * 4)
     text_img_h = int(max(h, total_h) + outline_width * 4)
     
@@ -341,7 +322,16 @@ def typeset_arabic(img, text, font_path, block):
         if not line:
             y_start += line_h
             continue
-        reshaped = get_display(reshaper.reshape(line))
+            
+        if HAS_RAQM:
+            display_text = line
+            render_dir = 'rtl'
+        elif get_display and reshape:
+            display_text = get_display(reshape(line))
+            render_dir = None
+        else:
+            display_text = line
+            render_dir = None
         
         if align == 'right':
             x_draw = text_img_w - outline_width*2 - 4
@@ -356,8 +346,8 @@ def typeset_arabic(img, text, font_path, block):
         y_pos = y_start + (line_h / 2)
         
         # Draw outline using stroke (modern Pillow)
-        text_draw.text((x_draw, y_pos), reshaped, font=font, fill=color, anchor=anch, 
-                       stroke_width=outline_width, stroke_fill=outline_color)
+        text_draw.text((x_draw, y_pos), display_text, font=font, fill=color, anchor=anch, 
+                       direction=render_dir, stroke_width=outline_width, stroke_fill=outline_color)
         y_start += line_h
         
     if is_gradient and len(gradient_colors) == 2:
@@ -368,7 +358,15 @@ def typeset_arabic(img, text, font_path, block):
             if not line:
                 y_st += line_h
                 continue
-            reshaped = get_display(reshaper.reshape(line))
+            
+            if HAS_RAQM:
+                display_text = line
+                render_dir = 'rtl'
+            else:
+                from arabic_reshaper import reshape
+                from bidi.algorithm import get_display
+                display_text = get_display(reshape(line))
+                render_dir = None
             
             if align == 'right':
                 x_dw = text_img_w - outline_width*2 - 4
@@ -381,7 +379,7 @@ def typeset_arabic(img, text, font_path, block):
                 anch = "mm"
                 
             y_p = y_st + (line_h / 2)
-            mask_draw.text((x_dw, y_p), reshaped, font=font, fill=255, anchor=anch)
+            mask_draw.text((x_dw, y_p), display_text, font=font, fill=255, anchor=anch, direction=render_dir)
             y_st += line_h
             
         grad_roi = Image.new('RGBA', (text_img_w, text_img_h))
@@ -407,13 +405,19 @@ def typeset_arabic(img, text, font_path, block):
             if not line:
                 y_st2 += line_h
                 continue
-            reshaped = get_display(reshaper.reshape(line))
+            
+            if HAS_RAQM:
+                display_text = line
+                render_dir = 'rtl'
+            else:
+                from arabic_reshaper import reshape
+                from bidi.algorithm import get_display
+                display_text = get_display(reshape(line))
+                render_dir = None
+                
             x_dw = text_img_w / 2
             y_p = y_st2 + (line_h / 2)
-            # draw only the stroke, no fill (fill handled by gradient)
-            # Actually, standard Pillow doesn't let us draw *only* stroke easily without filling.
-            # But the gradient filled the text body. If we redraw text with a transparent fill, it overwrites the gradient if mask isn't set.
-            # To fix: we just draw the stroke under the text originally!
+            # stroke handled by original draw if mask is just body
             y_st2 += line_h
 
     # Re-apply outline correctly for gradient:
@@ -433,17 +437,51 @@ def typeset_arabic(img, text, font_path, block):
     
     return img
 
+def draw_logo(img, block, logo_path):
+    """Draws a logo image with specific transform (resize, rotate, opacity)."""
+    if not logo_path or not os.path.exists(logo_path):
+        return img
+        
+    try:
+        logo = Image.open(logo_path).convert("RGBA")
+        x, y, w, h = block['x'], block['y'], block['w'], block['h']
+        cx, cy = x + w/2, y + h/2
+        
+        rotation = float(block.get('rotation', 0))
+        opacity = float(block.get('opacity', 1.0))
+        
+        # Resize logo to fit the block size
+        logo = logo.resize((int(w), int(h)), Image.Resampling.LANCZOS)
+        
+        # Apply opacity
+        if opacity < 1.0:
+            r, g, b, a = logo.split()
+            a = a.point(lambda p: p * opacity)
+            logo = Image.merge('RGBA', (r, g, b, a))
+            
+        # Rotate
+        if rotation != 0:
+            logo = logo.rotate(-rotation, resample=Image.Resampling.BICUBIC, expand=True)
+            
+        # Paste centered
+        final_w, final_h = logo.size
+        paste_x = int(cx - final_w / 2)
+        paste_y = int(cy - final_h / 2)
+        
+        img.paste(logo, (paste_x, paste_y), mask=logo)
+    except Exception as e:
+        print(f"Error drawing logo: {e}")
+        
+    return img
+
 def render_chapter(project_data, output_dir, target_lang, watermark_path="", watermark_size=40, watermark_count=8, callback=None):
     folder_name = project_data.get("input_folder_name", "Chapter")
     final_output_dir = os.path.join(output_dir, folder_name)
     os.makedirs(final_output_dir, exist_ok=True)
     
-    font_path = os.path.join(os.path.dirname(__file__), "Zain", "Zain-Bold.ttf")
+    # Use Hayah as default if not specified
+    font_path = os.path.join(os.path.dirname(__file__), "My fonts", "Hayah.otf")
     if not os.path.exists(font_path): font_path = "arial.ttf" # Fallback
-
-    wm_img = None
-    if watermark_path and os.path.exists(watermark_path):
-        wm_img = Image.open(watermark_path).convert("RGBA")
 
     full_text_script = []
 
@@ -453,22 +491,37 @@ def render_chapter(project_data, output_dir, target_lang, watermark_path="", wat
         img_path = page["clean_path"] if page.get("clean_path") else page["raw_path"]
         img = load_image_rgb(img_path)
         
-        if wm_img:
-            img = apply_watermark(img, wm_img, int(watermark_size), min(int(watermark_count), 8))
-            
+
         page_texts = []
         for block in page["blocks"]:
-            img = typeset_arabic(
-                img, 
-                block["text"], 
-                font_path, 
-                block
-            )
-            page_texts.append(block["text"])
+            if block.get("type") == "logo":
+                img = draw_logo(img, block, watermark_path)
+            else:
+                img = typeset_arabic(
+                    img, 
+                    block["text"], 
+                    font_path, 
+                    block
+                )
+            page_texts.append(block.get("text", "[Logo]"))
             
-        out_name = Path(page["raw_path"]).name
-        if not out_name.endswith(('.jpg', '.jpeg', '.png')): out_name += ".jpg"
-        img.save(os.path.join(final_output_dir, out_name), quality=95)
+        # Preserve the EXACT original filename and extension
+        out_name = page.get("original_name")
+        if not out_name:
+            out_name = Path(page["raw_path"]).name
+            if out_name.startswith("raw_") and out_name.endswith(".jpg"):
+                # Fallback if original_name is missing (shouldn't happen with new logic)
+                out_name = out_name.replace("raw_", "page_")
+        
+        # Industry standard quality: 80 for JPEG, optimize for all
+        save_path = os.path.join(final_output_dir, out_name)
+        if out_name.lower().endswith(('.jpg', '.jpeg')):
+            img.save(save_path, "JPEG", quality=80, optimize=True)
+        elif out_name.lower().endswith('.png'):
+            img.save(save_path, "PNG", optimize=True)
+        else:
+            # Fallback for other formats
+            img.save(save_path, optimize=True)
         
         full_text_script.append(f"--- صفحة {idx + 1} ({out_name}) ---")
         full_text_script.extend(page_texts)
@@ -538,9 +591,12 @@ def _process_parsed_json(data_list):
         valid_results.append(obj)
     return valid_results if valid_results else None
 
-TRANSLATION_PROMPT = """Role: You are an Expert Webtoon Localization Engine and Master Typesetter.
+TRANSLATION_PROMPT = """Role: You are an Expert Manhwa Localization Engine and Master Typesetter.
 
-Input: This is an image slice from a Webtoon page containing English or Korean text.
+Context: You are translating a Manhwa (Korean Webtoon). You will receive images (either full pages or sequential slices). 
+CRITICAL: ONLY translate the text in the CURRENT image provided in this turn. DO NOT repeat translations from previous images in the chat history.
+
+Input: This is an image containing English or Korean text.
 
 Objective: Extract and translate ALL text located strictly INSIDE speech bubbles, thought bubbles, and narrative boxes into {lang}.
 
@@ -555,9 +611,9 @@ Objective: Extract and translate ALL text located strictly INSIDE speech bubbles
 - Any text that is NOT inside a clearly drawn bubble or box
 
 ### TRANSLATION QUALITY:
-1. **NATURAL & ENGAGING**: The tone must be natural, engaging, and flow perfectly like a human-made localization. Adapt idioms appropriately for Arabic readers.
-2. **CONTEXTUAL ARABIC (CRITICAL)**: Analyze the visual context (who is speaking, who they are talking to) and use the strictly correct Arabic masculine, feminine, or plural forms. English/Korean lacks these markers — you MUST infer them from the art.
-3. **PROFESSIONAL GRADE**: The translation should sound like it was done by a professional webtoon/manga localization team. No clunky, robotic, or literal-sounding output.
+1. **MANHWA STYLE**: The translation must fit the context of a Manhwa/Webtoon. It should be natural, engaging, and flow perfectly like a professional human localization.
+2. **CONTEXTUAL ARABIC (CRITICAL)**: Analyze the visual context (who is speaking, who they are talking to) and use the strictly correct Arabic masculine, feminine, or plural forms.
+3. **PROFESSIONAL GRADE**: No clunky, robotic, or literal-sounding output. Adapt idioms appropriately for Arabic readers.
 
 ### THE SINGLE-OBJECT RULE:
 1. **ONE BUBBLE = ONE BOX**: Treat every speech bubble or narrative box as a single object.
@@ -568,8 +624,11 @@ Objective: Extract and translate ALL text located strictly INSIDE speech bubbles
 2. **ACCURACY**: Coordinates must perfectly frame the bubble — not too loose, not too tight.
 
 ### OUTPUT FORMAT (MANDATORY — NO EXCEPTIONS):
-Return ONLY lines in this exact pipe-separated format, one per bubble:
+Return ONLY lines in this exact format, one per bubble:
 ymin, xmin, ymax, xmax | Translated text
+
+**IMPORTANT**: Coordinates MUST be integers on a scale of 0 to 1000 (where 0 is top/left and 1000 is bottom/right of the image).
+Example: 120, 250, 180, 450 | This is a translation.
 
 Do NOT return JSON, markdown, explanations, or any other format. ONLY the pipe-separated lines above.
 """
@@ -625,15 +684,13 @@ def sanitize_gemini_json(raw_text):
         return "__NO_TEXT__"
 
     # Strategy 1: Clean-Pipe Format (ymin, xmin, ymax, xmax | text)
-    # This is the most robust format to bypass Gemini UI's "Visual Chips"
     clean_pipe_results = []
-    # Match: 120, 250, 180, 450 | some text
-    # Also handles cases with or without spaces/commas
-    pipe_matches = re.findall(r'(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\|\s*(.*)', raw_text)
+    # Match: 120, 250, 180, 450 | some text (handles integers and decimals)
+    pipe_matches = re.findall(r'([\d\.]+)\s*,\s*([\d\.]+)\s*,\s*([\d\.]+)\s*,\s*([\d\.]+)\s*\|\s*(.*)', raw_text)
     if pipe_matches:
         for m in pipe_matches:
             try:
-                coords = [int(m[0]), int(m[1]), int(m[2]), int(m[3])]
+                coords = [float(m[0]), float(m[1]), float(m[2]), float(m[3])]
                 text_val = m[4].strip()
                 if text_val:
                     clean_pipe_results.append({"box_2d": coords, "text": text_val})
@@ -641,12 +698,12 @@ def sanitize_gemini_json(raw_text):
         if clean_pipe_results: return clean_pipe_results
 
     # Strategy 2: Bracketed Pipe Format ([y, x, y, x] | text)
-    bracket_pipe_matches = re.findall(r'\[\s*(\d+)(?:[\s,]+)(\d+)(?:[\s,]+)(\d+)(?:[\s,]+)(\d+)\s*\]\s*\|\s*(.*)', raw_text)
+    bracket_pipe_matches = re.findall(r'\[\s*([\d\.]+)(?:[\s,]+)([\d\.]+)(?:[\s,]+)([\d\.]+)(?:[\s,]+)([\d\.]+)\s*\]\s*\|\s*(.*)', raw_text)
     if bracket_pipe_matches:
         pipe_results = []
         for m in bracket_pipe_matches:
             try:
-                coords = [int(m[0]), int(m[1]), int(m[2]), int(m[3])]
+                coords = [float(m[0]), float(m[1]), float(m[2]), float(m[3])]
                 text_val = m[4].strip()
                 if text_val:
                     pipe_results.append({"box_2d": coords, "text": text_val})
@@ -717,6 +774,9 @@ def extract_chapter(input_dir, clean_dir, target_lang='Arabic', max_slice_height
 
     if callback: callback(f"📂 تم العثور على {len(images)} صور")
 
+    # Keep track of original filenames to preserve extensions during export
+    original_filenames = [img.name for img in images]
+    
     # Use a temporary directory for the workspace instead of a persistent folder next to input
     temp_workspace = tempfile.mkdtemp(prefix="ppcleaning_")
     
@@ -760,31 +820,51 @@ def extract_chapter(input_dir, clean_dir, target_lang='Arabic', max_slice_height
                         stitched_clean.paste(r_img_resized, (0, y))
                     y += target_h
             
-            p = os.path.join(temp_workspace, "raw_000.png")
-            stitched.save(p)
-            smart_images.append(Path(p))
+            # Slice the giant stitched image into manageable pieces for the editor
+            # This avoids having one extremely tall image that is hard to view or edit.
+            import tempfile
             
-            if has_clean:
-                c_p = os.path.join(temp_workspace, "clean_000.png")
-                stitched_clean.save(c_p)
-                smart_clean.append(Path(c_p))
+            # Temporary save to a real file to use get_slice_boxes logic
+            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+                tmp_path = tmp.name
+            stitched.save(tmp_path, "JPEG", quality=90)
+            
+            slice_boxes = get_slice_boxes(tmp_path, max_slice_height)
+            os.remove(tmp_path) # Clean up temp file
+            
+            for i, box in enumerate(slice_boxes):
+                slice_img = stitched.crop(box)
+                p = os.path.join(temp_workspace, f"smart_raw_{i:03d}.jpg")
+                slice_img.save(p, "JPEG", quality=90)
+                smart_images.append(Path(p))
+                
+                if has_clean:
+                    slice_clean = stitched_clean.crop(box)
+                    c_p = os.path.join(temp_workspace, f"smart_clean_{i:03d}.jpg")
+                    slice_clean.save(c_p, "JPEG", quality=90)
+                    smart_clean.append(Path(c_p))
+                else:
+                    smart_clean.append(None)
             
             images = smart_images
             if has_clean: clean_images = smart_clean
-            if callback: callback(f"✅ تم تجهيز الصور المدمجة كصفحة واحدة في المحرر.")
+            if callback: callback(f"✅ تم دمج وتجزئة الصور إلى {len(images)} صفحات للمحرر.")
         except Exception as e:
             if callback: callback(f"⚠️ فشل الدمج الذكي: {e}")
+            # Fallback to non-stitched if it fails
+            smart_stitch = False
             
     # If not stitched, just copy original files to temp workspace for UI
     if not smart_stitch:
         for i, img_path in enumerate(images):
-            p = os.path.join(temp_workspace, f"raw_{i:03d}.png")
-            load_image_rgb(img_path).save(p)
+            # Save as JPG for editor preview to save disk space and RAM
+            p = os.path.join(temp_workspace, f"raw_{i:03d}.jpg")
+            load_image_rgb(img_path).save(p, "JPEG", quality=90)
             smart_images.append(Path(p))
             
             if clean_images[i]:
-                c_p = os.path.join(temp_workspace, f"clean_{i:03d}.png")
-                load_image_rgb(clean_images[i]).save(c_p)
+                c_p = os.path.join(temp_workspace, f"clean_{i:03d}.jpg")
+                load_image_rgb(clean_images[i]).save(c_p, "JPEG", quality=90)
                 smart_clean.append(Path(c_p))
             else:
                 smart_clean.append(None)
@@ -808,17 +888,37 @@ def extract_chapter(input_dir, clean_dir, target_lang='Arabic', max_slice_height
             )
             browser.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
             page = browser.pages[0] if browser.pages else browser.new_page()
-            page.goto("https://gemini.google.com/app?hl=fr", timeout=60000)
+            page.goto("https://gemini.google.com/app?hl=en", timeout=60000)
             page.wait_for_selector('div[contenteditable="true"], rich-textarea', timeout=60000)
             
             for idx, img_path in enumerate(images):
                 if callback: callback(f"\n━━━ الصفحة {idx + 1}/{len(images)} ━━━")
+                
+                # Start a fresh chat session for each new image if not using smart stitch
+                # This prevents Gemini from hallucinating text from previous pages.
+                if not smart_stitch and idx > 0:
+                    try:
+                        page.goto("https://gemini.google.com/app?hl=en", timeout=30000)
+                        page.wait_for_selector('.ql-editor[contenteditable="true"]', timeout=30000)
+                        time.sleep(1)
+                    except: pass
+                
                 boxes = get_slice_boxes(str(img_path), max_slice_height)
+                
+                # Use original filename for the final export
+                if smart_stitch:
+                    # For stitched images, use the first original name but add a part suffix
+                    stem = Path(original_filenames[0]).stem
+                    ext = Path(original_filenames[0]).suffix
+                    orig_name = f"{stem}_part{idx+1:02d}{ext}"
+                else:
+                    orig_name = original_filenames[idx]
                 
                 page_data = {
                     "id": idx,
                     "raw_path": str(img_path),
                     "clean_path": str(clean_images[idx]) if clean_images[idx] else None,
+                    "original_name": orig_name,
                     "width": Image.open(img_path).width,
                     "height": Image.open(img_path).height,
                     "blocks": []
@@ -855,13 +955,16 @@ def extract_chapter(input_dir, clean_dir, target_lang='Arabic', max_slice_height
                                 if attempt > 0 and callback:
                                     callback(f"   🔄 إعادة المحاولة ({attempt + 1}/3)...")
                                 
-                                # STEP 1: Navigate to fresh Gemini chat
+                                # STEP 1: Ensure we are on the Gemini chat page
                                 if page.is_closed():
                                     page = browser.new_page()
                                 page.bring_to_front()
-                                page.goto("https://gemini.google.com/app?hl=fr", timeout=60000)
-                                page.wait_for_selector('.ql-editor[contenteditable="true"]', timeout=60000)
-                                time.sleep(1)
+                                
+                                # Only navigate to a new chat if we are at the very beginning or if the page is stuck
+                                if page.url == "about:blank" or (attempt > 1):
+                                    page.goto("https://gemini.google.com/app?hl=en", timeout=60000)
+                                    page.wait_for_selector('.ql-editor[contenteditable="true"]', timeout=60000)
+                                    time.sleep(1)
                                 
                                 # STEP 2: Force-clear the input
                                 page.evaluate("""
@@ -1119,6 +1222,9 @@ def extract_chapter(input_dir, clean_dir, target_lang='Arabic', max_slice_height
             return project_data
 
     except Exception as e:
+        err_msg = str(e)
+        if callback: callback(f"❌ Error: {err_msg[:200]}")
+        return None
         err_msg = str(e)
         if callback: callback(f"❌ Error: {err_msg[:200]}")
         return None
