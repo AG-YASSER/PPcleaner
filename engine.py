@@ -574,6 +574,10 @@ def _process_parsed_json(data_list):
     for i, obj in enumerate(data_list):
         if not isinstance(obj, dict) or 'text' not in obj: continue
         
+        # Filter out the example translation from the prompt
+        if obj['text'].strip().lower().rstrip('.') == "this is a translation":
+            continue
+            
         # Normalize various key names to 'box_2d'
         for key in ['box_2d', 'box', 'coordinates', 'position', 'box_20', 'box_2']:
             if key in obj:
@@ -612,7 +616,7 @@ Objective: Extract and translate ALL text located strictly INSIDE speech bubbles
 
 ### TRANSLATION QUALITY:
 1. **MANHWA STYLE**: The translation must fit the context of a Manhwa/Webtoon. It should be natural, engaging, and flow perfectly like a professional human localization.
-2. **CONTEXTUAL ARABIC (CRITICAL)**: Analyze the visual context (who is speaking, who they are talking to) and use the strictly correct Arabic masculine, feminine, or plural forms.
+2. **CONTEXTUAL ARABIC (CRITICAL)**: Analyze the visual context (who is speaking, who they are talking to) and use the strictly correct Arabic masculine, feminine, or plural forms. DO NOT add diacritics (التشكيل/harakat) to the Arabic translation at all (e.g., no fatha, damma, kasra, shadda, sukun, tanween). All Arabic text must be completely plain/raw text without any diacritics.
 3. **PROFESSIONAL GRADE**: No clunky, robotic, or literal-sounding output. Adapt idioms appropriately for Arabic readers.
 
 ### THE SINGLE-OBJECT RULE:
@@ -692,7 +696,7 @@ def sanitize_gemini_json(raw_text):
             try:
                 coords = [float(m[0]), float(m[1]), float(m[2]), float(m[3])]
                 text_val = m[4].strip()
-                if text_val:
+                if text_val and text_val.lower().rstrip('.') != "this is a translation":
                     clean_pipe_results.append({"box_2d": coords, "text": text_val})
             except: pass
         if clean_pipe_results: return clean_pipe_results
@@ -705,7 +709,7 @@ def sanitize_gemini_json(raw_text):
             try:
                 coords = [float(m[0]), float(m[1]), float(m[2]), float(m[3])]
                 text_val = m[4].strip()
-                if text_val:
+                if text_val and text_val.lower().rstrip('.') != "this is a translation":
                     pipe_results.append({"box_2d": coords, "text": text_val})
             except: pass
         if pipe_results: return pipe_results
@@ -732,15 +736,99 @@ def sanitize_gemini_json(raw_text):
     
     if texts:
         result = []
-        n = len(texts)
-        for i, t in enumerate(texts):
+        valid_texts = [t.strip() for t in texts if t.strip().lower().rstrip('.') != "this is a translation"]
+        n = len(valid_texts)
+        for i, t in enumerate(valid_texts):
             # Better distribution for fallback (centered and spread)
             y_start = int((i / n) * 900) + 50
             y_end = y_start + 60
-            result.append({"box_2d": [y_start, 300, y_end, 700], "text": t.strip()})
-        return result
+            result.append({"box_2d": [y_start, 300, y_end, 700], "text": t})
+        return result if result else None
 
     return None
+
+def start_new_gemini_chat(page, callback=None):
+    """Starts a new fresh chat session in Gemini to prevent context leakage and hallucinations."""
+    if callback: callback("   🧹 جاري بدء محادثة جديدة لتنظيف الذاكرة...")
+    
+    # Try different selectors to click the New Chat button
+    selectors = [
+        'button[aria-label="New chat"]',
+        'a[aria-label="New chat"]',
+        '[aria-label="New chat"]',
+        'button[aria-label="Start new chat"]',
+        'a[aria-label="Start new chat"]',
+        '[aria-label="Start new chat"]',
+        'a[href="/app"]',
+        '.new-chat-button',
+        'text="New chat"'
+    ]
+    
+    clicked = False
+    for sel in selectors:
+        try:
+            btn = page.locator(sel).first
+            if btn.is_visible(timeout=1500):
+                btn.click()
+                time.sleep(2)
+                clicked = True
+                break
+        except:
+            pass
+            
+    if not clicked:
+        # Try to open the navigation menu first if the sidebar is collapsed
+        menu_selectors = [
+            'button[aria-label="Main menu"]',
+            '[aria-label="Main menu"]',
+            'button[aria-label="Navigation menu"]',
+            '.menu-button'
+        ]
+        for m_sel in menu_selectors:
+            try:
+                menu_btn = page.locator(m_sel).first
+                if menu_btn.is_visible(timeout=1000):
+                    menu_btn.click()
+                    time.sleep(1)
+                    # Try selectors again
+                    for sel in selectors:
+                        btn = page.locator(sel).first
+                        if btn.is_visible(timeout=2000):
+                            btn.click()
+                            time.sleep(2)
+                            clicked = True
+                            break
+                if clicked:
+                    break
+            except:
+                pass
+                
+    # If clicking didn't work, we can fallback to navigating to the base URL and waiting
+    if not clicked:
+        try:
+            page.goto("https://gemini.google.com/app?hl=en", timeout=30000)
+            time.sleep(1)
+        except:
+            pass
+            
+    # Wait for the editor to be ready and empty
+    try:
+        page.wait_for_selector('.ql-editor[contenteditable="true"]', timeout=30000)
+        # Force-clear the editor just in case
+        page.evaluate("""
+        () => {
+            const editors = document.querySelectorAll('.ql-editor[contenteditable="true"]');
+            const editor = editors[editors.length - 1];
+            if (editor) {
+                editor.focus();
+                document.execCommand('selectAll', false, null);
+                document.execCommand('delete', false, null);
+            }
+        }
+        """)
+        time.sleep(0.5)
+    except Exception as e:
+        if callback: callback(f"   ⚠️ تنبيه: لم نتمكن من التأكد من جهوزية حقل الكتابة: {e}")
 
 def extract_chapter(input_dir, clean_dir, target_lang='Arabic', max_slice_height=5000, smart_stitch=False, callback=None):
     import tempfile, shutil
@@ -891,17 +979,15 @@ def extract_chapter(input_dir, clean_dir, target_lang='Arabic', max_slice_height
             page.goto("https://gemini.google.com/app?hl=en", timeout=60000)
             page.wait_for_selector('div[contenteditable="true"], rich-textarea', timeout=60000)
             
+            # Start a fresh chat for the very first page to clear old history
+            start_new_gemini_chat(page, callback)
+            
             for idx, img_path in enumerate(images):
                 if callback: callback(f"\n━━━ الصفحة {idx + 1}/{len(images)} ━━━")
                 
-                # Start a fresh chat session for each new image if not using smart stitch
-                # This prevents Gemini from hallucinating text from previous pages.
-                if not smart_stitch and idx > 0:
-                    try:
-                        page.goto("https://gemini.google.com/app?hl=en", timeout=30000)
-                        page.wait_for_selector('.ql-editor[contenteditable="true"]', timeout=30000)
-                        time.sleep(1)
-                    except: pass
+                # Start a fresh chat session for each new page to keep context within the same page
+                if idx > 0:
+                    start_new_gemini_chat(page, callback)
                 
                 boxes = get_slice_boxes(str(img_path), max_slice_height)
                 
@@ -928,6 +1014,7 @@ def extract_chapter(input_dir, clean_dir, target_lang='Arabic', max_slice_height
                 clean_img = load_image_rgb(clean_images[idx]) if clean_images[idx] else raw_img.copy()
 
                 for si, box in enumerate(boxes):
+
                     fd, slice_temp = tempfile.mkstemp(suffix=".jpg")
                     os.close(fd)
                     raw_piece = raw_img.crop(box)
@@ -980,6 +1067,13 @@ def extract_chapter(input_dir, clean_dir, target_lang='Arabic', max_slice_height
                                 """)
                                 time.sleep(0.5)
                                 
+                                # STEP 2.5: Count initial previews before pasting
+                                previews_selector = 'img[src*="blob:"], img[src*="data:"], .image-preview, .attachment-preview, .inline-image, [data-image-upload], .ql-image, img.ql-image, .media-upload-chip, .upload-chip, file-upload-chip, rich-textarea img, .ql-editor img'
+                                try:
+                                    initial_count = len(page.locator(previews_selector).all())
+                                except Exception:
+                                    initial_count = 0
+                                
                                 # STEP 3: Inject image via ClipboardEvent
                                 page.evaluate(f"""
                                 async () => {{
@@ -1002,15 +1096,30 @@ def extract_chapter(input_dir, clean_dir, target_lang='Arabic', max_slice_height
                                 }}
                                 """)
 
-                                # STEP 4: Wait for image attachment to appear
+                                # STEP 4: Wait for image attachment to appear using previews count difference
                                 image_ready = False
                                 for _wait in range(15):
                                     time.sleep(1)
-                                    previews = page.locator('img[src*="blob:"], img[src*="data:"], .image-preview, .attachment-preview, .inline-image, [data-image-upload], .ql-image, img.ql-image, .media-upload-chip, .upload-chip, file-upload-chip').all()
-                                    if len(previews) > 0:
-                                        image_ready = True
-                                        time.sleep(1)
-                                        break
+                                    try:
+                                        current_count = len(page.locator(previews_selector).all())
+                                        if current_count > initial_count:
+                                            image_ready = True
+                                            time.sleep(1.5)  # Upload stability buffer
+                                            break
+                                    except Exception:
+                                        pass
+                                
+                                # Fallback check using explicit selectors
+                                if not image_ready:
+                                    try:
+                                        previews = page.locator('rich-textarea img, rich-textarea file-upload-chip, rich-textarea .upload-chip, rich-textarea [data-image-upload], rich-textarea .media-upload-chip').all()
+                                        if len(previews) == 0:
+                                            previews = page.locator('.ql-editor img, .ql-image img, img.ql-image').all()
+                                        if len(previews) > 0:
+                                            image_ready = True
+                                    except Exception:
+                                        pass
+                                        
                                 if not image_ready:
                                     if callback: callback(f"   ⚠️ الصورة لم تظهر، إعادة المحاولة...")
                                     continue
@@ -1074,8 +1183,8 @@ def extract_chapter(input_dir, clean_dir, target_lang='Arabic', max_slice_height
                                 # CRITICAL: Use textContent on code/pre blocks — innerText strips [arrays]
                                 extract_response_js = """
                                 () => {
-                                    // Strategy 1: Look for the new "Pipe" format (y, x, y, x | text)
-                                    const allContent = document.querySelectorAll('message-content, .model-response-text, [data-message-author-role="model"]');
+                                    // Strategy 1: Look for the new "Pipe" format (y, x, y, x | text) inside model responses
+                                    const allContent = document.querySelectorAll('model-response message-content, .model-response-text, [data-message-author-role="model"] message-content, [data-message-author-role="model"]');
                                     for (let i = allContent.length - 1; i >= 0; i--) {
                                         const t = allContent[i].innerText || allContent[i].textContent || '';
                                         // Detect 4 numbers followed by a pipe |
@@ -1084,18 +1193,17 @@ def extract_chapter(input_dir, clean_dir, target_lang='Arabic', max_slice_height
                                         if ((t.includes('box_2d') || t.includes('position')) && t.includes('text')) return t;
                                     }
                                     
-                                    // Strategy 2: Code blocks
-                                    const codeBlocks = document.querySelectorAll('code, pre, .code-block');
+                                    // Strategy 2: Code blocks inside model responses
+                                    const codeBlocks = document.querySelectorAll('model-response code, model-response pre, [data-message-author-role="model"] code, [data-message-author-role="model"] pre');
                                     for (let i = codeBlocks.length - 1; i >= 0; i--) {
                                         const t = codeBlocks[i].innerText || '';
                                         if (t.includes('|') || t.includes('box_2d')) return t;
                                     }
-                                    // Strategy 2: Extract text from model response containers
+                                    // Strategy 3: Extract text from model response containers
                                     const selectors = [
-                                        'message-content.model-response-text',
-                                        '.model-response-text',
                                         'model-response message-content',
-                                        'message-content',
+                                        '.model-response-text',
+                                        '[data-message-author-role="model"] message-content',
                                         '[data-message-author-role="model"]',
                                         '.markdown-main-panel'
                                     ];
@@ -1106,11 +1214,11 @@ def extract_chapter(input_dir, clean_dir, target_lang='Arabic', max_slice_height
                                             // Handle visual detection elements (Gemini UI sometimes hides numbers in tooltips)
                                             // Extract all text nodes, including those inside spans or interactive elements
                                             const txt = Array.from(last.querySelectorAll('*')).map(e => e.textContent).join(' ') + ' ' + last.textContent;
-                                            if ((txt.includes('box_2d') || txt.includes('box')) && txt.length > 20) return txt;
+                                            if ((txt.includes('box_2d') || txt.includes('box') || txt.includes('|')) && txt.length > 20) return txt;
                                         }
                                     }
-                                    // Strategy 3: Aggressive DOM scan for coordinate strings
-                                    const all = document.querySelectorAll('div, p, span');
+                                    // Strategy 4: Aggressive DOM scan for coordinate strings inside model responses
+                                    const all = document.querySelectorAll('model-response div, model-response p, model-response span, [data-message-author-role="model"] div, [data-message-author-role="model"] p, [data-message-author-role="model"] span');
                                     for (let i = all.length - 1; i >= 0; i--) {
                                         const t = all[i].textContent || '';
                                         if (t.includes('|') && /\d+,\s*\d+/.test(t) && t.length < 2000) return t;
