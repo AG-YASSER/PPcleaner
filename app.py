@@ -248,7 +248,7 @@ HTML = r'''<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PPCleaning — محرر الويبتون الذكي</title>
-<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Zain:wght@300;400;700;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 /* DYNAMIC_FONTS_CSS */
 
@@ -260,7 +260,7 @@ HTML = r'''<!DOCTYPE html>
   --success: #10b981; --error: #ef4444;
   --gradient: linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%);
 }
-* { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Outfit', 'Zain', sans-serif; }
+* { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Outfit', sans-serif; }
 body { background: var(--bg); color: var(--text); overflow: hidden; height: 100vh; display: flex; align-items: center; justify-content: center; }
 
 /* Views */

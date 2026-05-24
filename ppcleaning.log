@@ -393,3 +393,9 @@ SyntaxError: '(' was never closed
 2026-05-21 15:51:51,170 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
 2026-05-21 15:52:00,506 - INFO - Starting extraction: input=C:\Users\hp\Desktop\ScraperTool\library\Artifact-Devouring Player\Chapter 41, clean=C:\Users\hp\Downloads\artifact-41, watermark=C:\Users\hp\Downloads\Logos\output-onlinepngtools.png
 2026-05-21 22:47:21,060 - INFO - Starting render: output=C:\Users\hp\Downloads\artifact-41
+2026-05-24 13:34:00,719 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-24 13:34:06,487 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-24 13:34:14,522 - INFO - Starting extraction: input=C:\Users\hp\Desktop\1, clean=, watermark=
+2026-05-24 13:37:23,669 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-24 13:37:26,230 - WARNING - FOLDER_DIALOG is deprecated and will be removed in a future version. Use 'FileDialog.FOLDER' instead.
+2026-05-24 13:37:28,625 - INFO - Starting extraction: input=C:\Users\hp\Desktop\1, clean=, watermark=
